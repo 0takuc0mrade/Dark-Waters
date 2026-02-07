@@ -8,6 +8,7 @@ pub trait IActions<T>{
     fn commit_board(ref self: T, game_id: u32, merkle_root: felt252);
     fn attack(ref self: T, game_id: u32, x: u8, y: u8);
     fn reveal(ref self: T, game_id: u32, x: u8, y: u8, salt: felt252, is_ship: bool, proof: Span<felt252>);
+    fn claim_timeout_win(ref self: T, game_id: u32);
 }
 
 #[dojo::contract]
@@ -20,7 +21,7 @@ pub mod Actions{
 
     use alexandria_merkle_tree::merkle_tree::poseidon::PoseidonHasherImpl;
 
-    use core::poseidon::{PoseidonTrait, poseidon_hash_span};
+    use core::poseidon::{poseidon_hash_span};
 
     use dojo::model::ModelStorage;
 
@@ -44,7 +45,10 @@ pub mod Actions{
                 player_2: opponent,
                 turn: caller,
                 state: 0,
+                //zero address
                 winner: contract_address_const::<0>(),
+                last_action: get_block_timestamp(),
+                moves_count: 0,
             };
 
             counter.count = new_game_id;
@@ -108,6 +112,10 @@ pub mod Actions{
                 is_revealed: false,               // The "Question" is asked
                 is_hit: false                     // the answer is unknown
             };
+
+            game.last_action = get_block_timestamp();
+            game.moves_count += 1;
+            world.write_model(@game);
 
             world.write_model(@new_attack);
         }
@@ -176,6 +184,29 @@ pub mod Actions{
 
             // Save the Game State change
             world.write_model(@game)
+        }
+
+        fn claim_timeout_win(ref self: ContractState, game_id: u32){
+            let mut world = self.world_defalt();
+            let caller = get_caller_address();
+
+            let mut game:Game = world.read_model(game_id);
+
+            assert!(game.state == 1, "Game is not active");
+            assert!(game.winner == contract_address_const::<0>(), "Game is over");
+
+            //time of inactivity
+            let time_passed = get_block_timestamp() - game.last_action;
+
+            //there's a 2 minutes timer for a move to be made
+            assert!(time_passed > 120, "Wait for timeout");
+
+            //you can't claim timeout when its your turn
+            assert!(game.turn != caller, "It's your turn to make a move");
+
+            game.state = 2; //game over
+            game.winner = caller; //you are automatically the winner
+            world.write_model(@game);
         }
     }
 

@@ -16,6 +16,12 @@ pub struct Game {
     pub turn: ContractAddress,
     pub state: u8, //0 = setup, 1 = playing, 2 = finished
     pub winner: ContractAddress,
+
+    //timestamp of the last action carried out in the game
+    pub last_action: u64,
+
+    //how many moves the game has
+    pub moves_count: u32,
 }
 
 #[derive(Copy, Drop, Serde, Debug)]
