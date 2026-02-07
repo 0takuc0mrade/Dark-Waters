@@ -7,6 +7,7 @@ pub trait IActions<T>{
     fn spawn_game(ref self: T, opponent: ContractAddress);
     fn commit_board(ref self: T, game_id: u32, merkle_root: felt252);
     fn attack(ref self: T, game_id: u32, x: u8, y: u8);
+    fn reveal(ref self: T, game_id: u32, x: u8, y: u8, salt: felt252, is_ship: bool, proof: Span<felt252>);
 }
 
 #[dojo::contract]
@@ -14,6 +15,13 @@ pub mod Actions{
     use super::IActions;
 
     use starknet::{ContractAddress, get_block_timestamp, get_caller_address, contract_address_const};
+
+    use alexandria_merkle_tree::merkle_tree::{Hasher, MerkleTree, MerkleTreeTrait};
+
+    use alexandria_merkle_tree::merkle_tree::poseidon::PoseidonHasherImpl;
+
+    use core::poseidon::{PoseidonTrait, poseidon_hash_span};
+
     use dojo::model::ModelStorage;
 
     use dark_waters::models::{Game, GameCounter, BoardCommitment, Vec2, Attack};
@@ -102,6 +110,72 @@ pub mod Actions{
             };
 
             world.write_model(@new_attack);
+        }
+
+        fn reveal(ref self: ContractState, game_id: u32, x: u8, y: u8, salt: felt252, is_ship: bool, proof: Span<felt252>){
+            let mut world = self.world_defalt();
+            let caller = get_caller_address();
+
+            let mut game: Game = world.read_model(game_id);
+            let position = Vec2{x,y};
+
+            //remember, the person calling reveal is always the defender, so the the attacker is still the one with the game turnfn reveal(ref self: T, game_id: u32, x: u8, y: u8, salt: felt252, is_ship: bool, proof: Span<felt252>);
+            let attacker_address = game.turn;
+
+            assert!(caller != attacker_address, "Attacker cannot reveal!");
+
+            let mut attack_record: Attack = world.read_model((game_id, attacker_address, position));
+
+            assert!(attack_record.timestamp != 0, "There is no recorded attack at this position");
+            assert!(attack_record.is_revealed == false, "Attack has been revealed");
+
+            let mut defender_commit: BoardCommitment = world.read_model((game_id, caller));
+
+            //drafting a merkle root for verification
+            let mut leaf_data = ArrayTrait::new();
+            leaf_data.append(x.into());
+            leaf_data.append(y.into());
+            leaf_data.append(salt);
+            leaf_data.append(if is_ship { 1 } else { 0 });
+            let leaf_hash = poseidon_hash_span(leaf_data.span());
+
+            //verify the merkle proof
+            let mut tree: MerkleTree<Hasher> = MerkleTreeTrait::new();
+
+            let is_valid = tree.verify(
+                defender_commit.root,
+                leaf_hash,
+                proof
+            );
+
+            assert!(is_valid, "Invalid Merkle Proof");
+
+            //update game state
+            attack_record.is_revealed = true;
+            attack_record.is_hit = is_ship;
+            world.write_model(@attack_record);
+
+            if is_ship {
+                // Register the Hit
+                defender_commit.hits_taken += 1;
+                world.write_model(@defender_commit);
+
+                // WIN CONDITION CHECK
+                if defender_commit.hits_taken >= 10 {
+                    game.state = 2; // Finished
+                    game.winner = attacker_address;
+                    // We don't swap turns because the game is over
+                } else {
+                    // Game continues, Swap Turn
+                    game.turn = caller;
+                }
+            } else {
+                // Miss: Just swap turn
+                game.turn = caller;
+            }
+
+            // Save the Game State change
+            world.write_model(@game)
         }
     }
 

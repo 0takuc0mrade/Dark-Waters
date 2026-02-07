@@ -12,6 +12,8 @@ spawn = "sozo execute dark_waters-actions spawn --wait"
 move = "sozo execute dark_waters-actions move -c 1 --wait"
 
 [dependencies]
+alexandria_data_structures = "0.9.0"
+alexandria_merkle_tree = { git = "https://github.com/keep-starknet-strange/alexandria.git", tag = "v0.9.0" }
 dojo = "1.8.0"
 starknet = "2.13.1"
 
