@@ -9,6 +9,7 @@ pub trait IActions<T>{
     fn attack(ref self: T, game_id: u32, x: u8, y: u8);
     fn reveal(ref self: T, game_id: u32, x: u8, y: u8, salt: felt252, is_ship: bool, proof: Span<felt252>);
     fn claim_timeout_win(ref self: T, game_id: u32);
+    fn check_hits_taken(self: @T, game_id: u32) -> u8;
 }
 
 #[dojo::contract]
@@ -25,7 +26,61 @@ pub mod Actions{
 
     use dojo::model::ModelStorage;
 
+    use dojo::event::EventStorage;
+
     use dark_waters::models::{Game, GameCounter, BoardCommitment, Vec2, Attack};
+
+    #[derive(Copy, Drop, Serde)]
+    #[dojo::event]
+    pub struct game_spawned{
+        #[key]
+        pub game_id: u32,
+        pub player_1: ContractAddress,
+        pub player_2: ContractAddress,
+        pub turn: ContractAddress,
+        pub state: u8,
+        pub winner: ContractAddress,
+        pub last_action: u64,
+        pub moves_count: u32,
+    }
+
+    #[derive(Copy, Drop, Serde)]
+    #[dojo::event]
+    pub struct board_committed {
+        #[key]
+        pub game_id: u32,
+        pub player: ContractAddress,
+        pub root: felt252,
+    }
+
+    #[derive(Copy, Drop, Serde)]
+    #[dojo::event]
+    pub struct attack_made {
+        #[key]
+        pub game_id: u32,
+        pub attacker: ContractAddress,
+        pub x: u8,
+        pub y: u8,
+    }
+
+    #[derive(Copy, Drop, Serde)]
+    #[dojo::event]
+    pub struct attack_revealed {
+        #[key]
+        pub game_id: u32,
+        pub x: u8,
+        pub y: u8,
+        pub is_hit: bool,
+    }
+
+    #[derive(Copy, Drop, Serde)]
+    #[dojo::event]
+    pub struct game_ended {
+        #[key]
+        pub game_id: u32,
+        pub winner: ContractAddress,
+        pub reason: felt252, // 'destruction' or 'timeout'
+    }
 
     #[abi(embed_v0)]
     impl ActionImpl of IActions<ContractState>{
@@ -55,6 +110,8 @@ pub mod Actions{
 
             world.write_model(@counter);
             world.write_model(@new_game);
+
+            world.emit_event(@game_spawned { game_id: new_game_id , player_1: caller, player_2: opponent, turn: caller, state: 0, winner: contract_address_const::<0>(), last_action: get_block_timestamp(), moves_count: 0 });
         }
 
         fn commit_board(ref self: ContractState, game_id: u32, merkle_root: felt252){
@@ -75,6 +132,9 @@ pub mod Actions{
             let player_commitment = BoardCommitment { game_id, player: caller, root: merkle_root, hits_taken: 0, is_committed: true };
 
             world.write_model(@player_commitment);
+
+            //emit event
+            world.emit_event(@board_committed { game_id, player: caller, root: merkle_root });
 
             let opponent_commitment: BoardCommitment = world.read_model((game_id, opponent_address));
 
@@ -118,6 +178,8 @@ pub mod Actions{
             world.write_model(@game);
 
             world.write_model(@new_attack);
+
+            world.emit_event(@attack_made { game_id, attacker: caller, x, y });
         }
 
         fn reveal(ref self: ContractState, game_id: u32, x: u8, y: u8, salt: felt252, is_ship: bool, proof: Span<felt252>){
@@ -163,6 +225,8 @@ pub mod Actions{
             attack_record.is_hit = is_ship;
             world.write_model(@attack_record);
 
+            world.emit_event(@attack_revealed { game_id, x, y, is_hit: is_ship });
+
             if is_ship {
                 // Register the Hit
                 defender_commit.hits_taken += 1;
@@ -207,6 +271,17 @@ pub mod Actions{
             game.state = 2; //game over
             game.winner = caller; //you are automatically the winner
             world.write_model(@game);
+
+            world.emit_event(@game_ended { game_id, winner: caller, reason: 'timeout' });
+        }
+
+        fn check_hits_taken(self: @ContractState, game_id: u32) -> u8{
+            let world = self.world_defalt();
+            let caller = get_caller_address();
+
+            let player_commitment: BoardCommitment = world.read_model((game_id, caller));
+
+            player_commitment.hits_taken
         }
     }
 

@@ -8,8 +8,8 @@ sierra-replace-ids = true
 
 [scripts]
 migrate = "sozo build && sozo migrate"
-spawn = "sozo execute dark_waters-actions spawn --wait"
-move = "sozo execute dark_waters-actions move -c 1 --wait"
+spawn = "sozo execute dark-waters-actions spawn --wait"
+move = "sozo execute dark-waters-actions move -c 1 --wait"
 
 [dependencies]
 alexandria_data_structures = "0.9.0"
