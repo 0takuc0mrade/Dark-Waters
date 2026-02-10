@@ -33,8 +33,8 @@
   },
   "contracts": [
     {
-      "address": "0x213985633f0488557d379b31ea5606bf34ecd768895b58ff2e5848998847b5e",
-      "class_hash": "0x116501aa072d87278f8235ebe87cf69d3c71a7894475d18ea7b753279ca941d",
+      "address": "0x1b7e17ad6bbc599b91ae78065708d5d49d6eaccf97908f36e9c1066d7c7085f",
+      "class_hash": "0x268d3077766c0b42551b163d5321f087aede4f3c17621c1f8dfeff25bd9c5cf",
       "init_calldata": [],
       "tag": "dark_waters-Actions",
       "selector": "0x7f689e2d818b18c76ed7a72d8b4bf448736c3dcbff39d1a36ed05da4fc67e00",
@@ -184,7 +184,153 @@
       "selector": "0x53aac0505259e3365430836e247b48ddba7de8330573930a9ef43b0def4c57d"
     }
   ],
-  "events": [],
+  "events": [
+    {
+      "members": [
+        {
+          "name": "game_id",
+          "type": "core::integer::u32",
+          "key": true
+        },
+        {
+          "name": "attacker",
+          "type": "core::starknet::contract_address::ContractAddress",
+          "key": false
+        },
+        {
+          "name": "x",
+          "type": "core::integer::u8",
+          "key": false
+        },
+        {
+          "name": "y",
+          "type": "core::integer::u8",
+          "key": false
+        }
+      ],
+      "class_hash": "0x50016bc8fd01377682ef15db193275aea587097db59f1f5029dca5e66482562",
+      "tag": "dark_waters-attack_made",
+      "selector": "0x5548cce77b1d5547ae403fe1c999eb6b5b6deec203bb41d643f1ce0745141dd"
+    },
+    {
+      "members": [
+        {
+          "name": "game_id",
+          "type": "core::integer::u32",
+          "key": true
+        },
+        {
+          "name": "x",
+          "type": "core::integer::u8",
+          "key": false
+        },
+        {
+          "name": "y",
+          "type": "core::integer::u8",
+          "key": false
+        },
+        {
+          "name": "is_hit",
+          "type": "core::bool",
+          "key": false
+        }
+      ],
+      "class_hash": "0x66c6cd0d3c442dc29223a73a08a0839edf3f7be9d74971d099c903b1fbe764b",
+      "tag": "dark_waters-attack_revealed",
+      "selector": "0x2b1e1c82d7adc6a31dcfd63a739314b26b4319934d854c9906d1039b62d8d91"
+    },
+    {
+      "members": [
+        {
+          "name": "game_id",
+          "type": "core::integer::u32",
+          "key": true
+        },
+        {
+          "name": "player",
+          "type": "core::starknet::contract_address::ContractAddress",
+          "key": false
+        },
+        {
+          "name": "root",
+          "type": "core::felt252",
+          "key": false
+        }
+      ],
+      "class_hash": "0x5f1b1144fa7eeadb063d1b183802bf6a4a710a54b09ffb17f5e3aabec79edf4",
+      "tag": "dark_waters-board_committed",
+      "selector": "0x575b6f66dbb5b17fb1631bcf236f4a0328f93190da5ce469732b822e40671e3"
+    },
+    {
+      "members": [
+        {
+          "name": "game_id",
+          "type": "core::integer::u32",
+          "key": true
+        },
+        {
+          "name": "winner",
+          "type": "core::starknet::contract_address::ContractAddress",
+          "key": false
+        },
+        {
+          "name": "reason",
+          "type": "core::felt252",
+          "key": false
+        }
+      ],
+      "class_hash": "0x40b4bc771c0cd1faa5b1afe7d317a653e9bed49a1547c02a6e09b0eda98ac44",
+      "tag": "dark_waters-game_ended",
+      "selector": "0x259ed609484026ce0d7af132cae5944310770b975655365e632f144607da0ea"
+    },
+    {
+      "members": [
+        {
+          "name": "game_id",
+          "type": "core::integer::u32",
+          "key": true
+        },
+        {
+          "name": "player_1",
+          "type": "core::starknet::contract_address::ContractAddress",
+          "key": false
+        },
+        {
+          "name": "player_2",
+          "type": "core::starknet::contract_address::ContractAddress",
+          "key": false
+        },
+        {
+          "name": "turn",
+          "type": "core::starknet::contract_address::ContractAddress",
+          "key": false
+        },
+        {
+          "name": "state",
+          "type": "core::integer::u8",
+          "key": false
+        },
+        {
+          "name": "winner",
+          "type": "core::starknet::contract_address::ContractAddress",
+          "key": false
+        },
+        {
+          "name": "last_action",
+          "type": "core::integer::u64",
+          "key": false
+        },
+        {
+          "name": "moves_count",
+          "type": "core::integer::u32",
+          "key": false
+        }
+      ],
+      "class_hash": "0xaf5be78d662718414016f707bf15c04b5fe5e3a1dcf14af0f4defda6bbde7b",
+      "tag": "dark_waters-game_spawned",
+      "selector": "0x7003ad3d04ce3b53a28689df967350b9610b921088b7e4c6fa97cb34e892798"
+    }
+  ],
   "external_contracts": [],
   "abis": [
     {
@@ -572,6 +718,252 @@
       ]
     },
     {
+      "type": "struct",
+      "name": "dark_waters::systems::actions::Actions::attack_made",
+      "members": [
+        {
+          "name": "game_id",
+          "type": "core::integer::u32"
+        },
+        {
+          "name": "attacker",
+          "type": "core::starknet::contract_address::ContractAddress"
+        },
+        {
+          "name": "x",
+          "type": "core::integer::u8"
+        },
+        {
+          "name": "y",
+          "type": "core::integer::u8"
+        }
+      ]
+    },
+    {
+      "type": "struct",
+      "name": "dark_waters::systems::actions::Actions::attack_madeValue",
+      "members": [
+        {
+          "name": "attacker",
+          "type": "core::starknet::contract_address::ContractAddress"
+        },
+        {
+          "name": "x",
+          "type": "core::integer::u8"
+        },
+        {
+          "name": "y",
+          "type": "core::integer::u8"
+        }
+      ]
+    },
+    {
+      "type": "struct",
+      "name": "dark_waters::systems::actions::Actions::attack_revealed",
+      "members": [
+        {
+          "name": "game_id",
+          "type": "core::integer::u32"
+        },
+        {
+          "name": "x",
+          "type": "core::integer::u8"
+        },
+        {
+          "name": "y",
+          "type": "core::integer::u8"
+        },
+        {
+          "name": "is_hit",
+          "type": "core::bool"
+        }
+      ]
+    },
+    {
+      "type": "struct",
+      "name": "dark_waters::systems::actions::Actions::attack_revealedValue",
+      "members": [
+        {
+          "name": "x",
+          "type": "core::integer::u8"
+        },
+        {
+          "name": "y",
+          "type": "core::integer::u8"
+        },
+        {
+          "name": "is_hit",
+          "type": "core::bool"
+        }
+      ]
+    },
+    {
+      "type": "struct",
+      "name": "dark_waters::systems::actions::Actions::board_committed",
+      "members": [
+        {
+          "name": "game_id",
+          "type": "core::integer::u32"
+        },
+        {
+          "name": "player",
+          "type": "core::starknet::contract_address::ContractAddress"
+        },
+        {
+          "name": "root",
+          "type": "core::felt252"
+        }
+      ]
+    },
+    {
+      "type": "struct",
+      "name": "dark_waters::systems::actions::Actions::board_committedValue",
+      "members": [
+        {
+          "name": "player",
+          "type": "core::starknet::contract_address::ContractAddress"
+        },
+        {
+          "name": "root",
+          "type": "core::felt252"
+        }
+      ]
+    },
+    {
+      "type": "event",
+      "name": "dark_waters::systems::actions::Actions::e_attack_made::Event",
+      "kind": "enum",
+      "variants": []
+    },
+    {
+      "type": "event",
+      "name": "dark_waters::systems::actions::Actions::e_attack_revealed::Event",
+      "kind": "enum",
+      "variants": []
+    },
+    {
+      "type": "event",
+      "name": "dark_waters::systems::actions::Actions::e_board_committed::Event",
+      "kind": "enum",
+      "variants": []
+    },
+    {
+      "type": "event",
+      "name": "dark_waters::systems::actions::Actions::e_game_ended::Event",
+      "kind": "enum",
+      "variants": []
+    },
+    {
+      "type": "event",
+      "name": "dark_waters::systems::actions::Actions::e_game_spawned::Event",
+      "kind": "enum",
+      "variants": []
+    },
+    {
+      "type": "struct",
+      "name": "dark_waters::systems::actions::Actions::game_ended",
+      "members": [
+        {
+          "name": "game_id",
+          "type": "core::integer::u32"
+        },
+        {
+          "name": "winner",
+          "type": "core::starknet::contract_address::ContractAddress"
+        },
+        {
+          "name": "reason",
+          "type": "core::felt252"
+        }
+      ]
+    },
+    {
+      "type": "struct",
+      "name": "dark_waters::systems::actions::Actions::game_endedValue",
+      "members": [
+        {
+          "name": "winner",
+          "type": "core::starknet::contract_address::ContractAddress"
+        },
+        {
+          "name": "reason",
+          "type": "core::felt252"
+        }
+      ]
+    },
+    {
+      "type": "struct",
+      "name": "dark_waters::systems::actions::Actions::game_spawned",
+      "members": [
+        {
+          "name": "game_id",
+          "type": "core::integer::u32"
+        },
+        {
+          "name": "player_1",
+          "type": "core::starknet::contract_address::ContractAddress"
+        },
+        {
+          "name": "player_2",
+          "type": "core::starknet::contract_address::ContractAddress"
+        },
+        {
+          "name": "turn",
+          "type": "core::starknet::contract_address::ContractAddress"
+        },
+        {
+          "name": "state",
+          "type": "core::integer::u8"
+        },
+        {
+          "name": "winner",
+          "type": "core::starknet::contract_address::ContractAddress"
+        },
+        {
+          "name": "last_action",
+          "type": "core::integer::u64"
+        },
+        {
+          "name": "moves_count",
+          "type": "core::integer::u32"
+        }
+      ]
+    },
+    {
+      "type": "struct",
+      "name": "dark_waters::systems::actions::Actions::game_spawnedValue",
+      "members": [
+        {
+          "name": "player_1",
+          "type": "core::starknet::contract_address::ContractAddress"
+        },
+        {
+          "name": "player_2",
+          "type": "core::starknet::contract_address::ContractAddress"
+        },
+        {
+          "name": "turn",
+          "type": "core::starknet::contract_address::ContractAddress"
+        },
+        {
+          "name": "state",
+          "type": "core::integer::u8"
+        },
+        {
+          "name": "winner",
+          "type": "core::starknet::contract_address::ContractAddress"
+        },
+        {
+          "name": "last_action",
+          "type": "core::integer::u64"
+        },
+        {
+          "name": "moves_count",
+          "type": "core::integer::u32"
+        }
+      ]
+    },
+    {
       "type": "interface",
       "name": "dark_waters::systems::actions::IActions",
       "items": [
@@ -666,6 +1058,22 @@
           ],
           "outputs": [],
           "state_mutability": "external"
+        },
+        {
+          "type": "function",
+          "name": "check_hits_taken",
+          "inputs": [
+            {
+              "name": "game_id",
+              "type": "core::integer::u32"
+            }
+          ],
+          "outputs": [
+            {
+              "type": "core::integer::u8"
+            }
+          ],
+          "state_mutability": "view"
         }
       ]
     },
@@ -738,6 +1146,41 @@
       "type": "interface",
       "name": "dojo::contract::interface::IContract",
       "items": []
+    },
+    {
+      "type": "struct",
+      "name": "dojo::event::event::EventDef",
+      "members": [
+        {
+          "name": "name",
+          "type": "core::byte_array::ByteArray"
+        },
+        {
+          "name": "layout",
+          "type": "dojo::meta::layout::Layout"
+        },
+        {
+          "name": "schema",
+          "type": "dojo::meta::introspect::Struct"
+        }
+      ]
+    },
+    {
+      "type": "interface",
+      "name": "dojo::event::interface::IEvent",
+      "items": [
+        {
+          "type": "function",
+          "name": "definition",
+          "inputs": [],
+          "outputs": [
+            {
+              "type": "dojo::event::event::EventDef"
+            }
+          ],
+          "state_mutability": "view"
+        }
+      ]
     },
     {
       "type": "interface",
@@ -2313,8 +2756,8 @@
       "name": "ensure_abi",
       "inputs": [
         {
-          "name": "model",
-          "type": "dark_waters::models::GameCounter"
+          "name": "event",
+          "type": "dark_waters::systems::actions::Actions::game_spawned"
         }
       ],
       "outputs": [],
@@ -2333,7 +2776,7 @@
       "inputs": [
         {
           "name": "value",
-          "type": "dark_waters::models::GameCounterValue"
+          "type": "dark_waters::systems::actions::Actions::game_spawnedValue"
         }
       ],
       "outputs": [],

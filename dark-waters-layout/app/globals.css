@@ -1,0 +1,257 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+}
+
+@layer base {
+  :root {
+    --background: 210 20% 6%;
+    --foreground: 210 20% 95%;
+    --card: 210 18% 8%;
+    --card-foreground: 210 20% 95%;
+    --popover: 210 18% 10%;
+    --popover-foreground: 210 20% 95%;
+    --primary: 187 70% 48%;
+    --primary-foreground: 210 20% 4%;
+    --secondary: 210 14% 14%;
+    --secondary-foreground: 210 20% 85%;
+    --muted: 210 14% 12%;
+    --muted-foreground: 210 12% 50%;
+    --accent: 150 60% 44%;
+    --accent-foreground: 210 20% 4%;
+    --destructive: 0 72% 50%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 210 14% 16%;
+    --input: 210 14% 16%;
+    --ring: 187 70% 48%;
+    --chart-1: 187 70% 48%;
+    --chart-2: 150 60% 44%;
+    --chart-3: 210 50% 55%;
+    --chart-4: 30 80% 55%;
+    --chart-5: 340 75% 55%;
+    --radius: 0.5rem;
+    --sidebar-background: 210 18% 7%;
+    --sidebar-foreground: 210 20% 90%;
+    --sidebar-primary: 187 70% 48%;
+    --sidebar-primary-foreground: 210 20% 4%;
+    --sidebar-accent: 210 14% 14%;
+    --sidebar-accent-foreground: 210 20% 90%;
+    --sidebar-border: 210 14% 16%;
+    --sidebar-ring: 187 70% 48%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
+@keyframes pulse-glow {
+  0%, 100% {
+    box-shadow: 0 0 8px hsl(187 70% 48% / 0.4);
+  }
+  50% {
+    box-shadow: 0 0 20px hsl(187 70% 48% / 0.7);
+  }
+}
+
+.animate-pulse-glow {
+  animation: pulse-glow 2s ease-in-out infinite;
+}
+
+@keyframes radar-sweep {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+.animate-radar-sweep {
+  animation: radar-sweep 3s linear infinite;
+}
+
+@keyframes radar-ping {
+  0% {
+    opacity: 0.6;
+    r: 2;
+  }
+  50% {
+    opacity: 1;
+    r: 4;
+  }
+  100% {
+    opacity: 0.6;
+    r: 2;
+  }
+}
+
+.animate-radar-ping {
+  animation: radar-ping 2s ease-in-out infinite;
+}
+
+@keyframes explosion-pulse {
+  0% {
+    transform: scale(0.7);
+    opacity: 0.5;
+  }
+  50% {
+    transform: scale(1.2);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 0.9;
+  }
+}
+
+.animate-explosion {
+  animation: explosion-pulse 0.5s ease-out forwards;
+}
+
+@keyframes ripple {
+  0% {
+    transform: scale(0.6);
+    opacity: 0.8;
+  }
+  100% {
+    transform: scale(1.4);
+    opacity: 0;
+  }
+}
+
+.animate-ripple {
+  animation: ripple 1.2s ease-out infinite;
+}
+
+@keyframes scanner-sweep {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.animate-scanner {
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    hsl(0 72% 50% / 0.15) 50%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  animation: scanner-sweep 2s ease-in-out infinite;
+}
+
+@keyframes slide-up-fade {
+  0% {
+    transform: translateY(8px);
+    opacity: 0;
+  }
+  100% {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.animate-slide-up-fade {
+  animation: slide-up-fade 0.3s ease-out forwards;
+}
+
+@keyframes draw-check {
+  0% {
+    stroke-dashoffset: 48;
+  }
+  100% {
+    stroke-dashoffset: 0;
+  }
+}
+
+.animate-draw-check {
+  stroke-dasharray: 48;
+  stroke-dashoffset: 48;
+  animation: draw-check 0.5s ease-out 0.2s forwards;
+}
+
+@keyframes scale-circle {
+  0% {
+    transform: scale(0);
+    opacity: 0;
+  }
+  60% {
+    transform: scale(1.15);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.animate-scale-circle {
+  animation: scale-circle 0.4s ease-out forwards;
+}
+
+@keyframes fade-scale-in {
+  0% {
+    transform: scale(0.85);
+    opacity: 0;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.animate-fade-scale-in {
+  animation: fade-scale-in 0.3s ease-out forwards;
+}
+
+@keyframes modal-radar-glow {
+  0%, 100% {
+    filter: drop-shadow(0 0 8px hsl(187 70% 48% / 0.3));
+  }
+  50% {
+    filter: drop-shadow(0 0 20px hsl(187 70% 48% / 0.5));
+  }
+}
+
+.animate-modal-radar-glow {
+  animation: modal-radar-glow 2s ease-in-out infinite;
+}
+
+@keyframes text-shimmer {
+  0% {
+    background-position: -200% center;
+  }
+  100% {
+    background-position: 200% center;
+  }
+}
+
+.animate-text-shimmer {
+  background: linear-gradient(
+    90deg,
+    hsl(210 20% 85%) 0%,
+    hsl(187 70% 70%) 40%,
+    hsl(187 70% 90%) 50%,
+    hsl(187 70% 70%) 60%,
+    hsl(210 20% 85%) 100%
+  );
+  background-size: 200% auto;
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: text-shimmer 3s linear infinite;
+}

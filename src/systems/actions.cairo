@@ -1,7 +1,5 @@
 use starknet::ContractAddress;
 
-
-
 #[starknet::interface]
 pub trait IActions<T>{
     fn spawn_game(ref self: T, opponent: ContractAddress);
