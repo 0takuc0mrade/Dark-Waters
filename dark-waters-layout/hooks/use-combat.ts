@@ -2,13 +2,24 @@
 
 import React from "react"
 
-import { useState, useCallback, useRef } from "react"
+import { useState, useCallback, useRef, useEffect } from "react"
+import { useAccount } from "@starknet-react/core"
+import { useGameActions } from "@/src/hooks/useGameActions"
+import { useToast } from "@/hooks/use-toast"
 import type {
   CombatCell,
   BattleLogEntry,
   ShipHealth,
 } from "@/components/combat/types"
 import { GRID_SIZE } from "@/components/combat/types"
+import type { Ship } from "@/src/utils/merkle"
+
+// ── localStorage keys ────────────────────────────────────────────────
+
+const LS_GAME_ID = "dark-waters-gameId"
+const LS_BOARD = "dark-waters-board"
+
+// ── Helpers ──────────────────────────────────────────────────────────
 
 function createEmptyGrid(): CombatCell[][] {
   return Array.from({ length: GRID_SIZE }, () =>
@@ -17,8 +28,28 @@ function createEmptyGrid(): CombatCell[][] {
 }
 
 function createPlayerFleetGrid(): CombatCell[][] {
+  // Try to load the actual board from localStorage
+  if (typeof window !== "undefined") {
+    const boardJson = localStorage.getItem(LS_BOARD)
+    if (boardJson) {
+      try {
+        const board: Ship[] = JSON.parse(boardJson)
+        const grid = createEmptyGrid()
+        for (const cell of board) {
+          if (cell.is_ship && cell.x >= 0 && cell.x < GRID_SIZE && cell.y >= 0 && cell.y < GRID_SIZE) {
+            // Grid uses [row][col] where row = y, col = x
+            grid[cell.y][cell.x] = { state: "ship", shipId: "fleet" }
+          }
+        }
+        return grid
+      } catch {
+        // fallback to default
+      }
+    }
+  }
+
+  // Fallback: pre-placed fleet for demo
   const grid = createEmptyGrid()
-  // Pre-placed fleet for demo
   const placements = [
     { shipId: "carrier", cells: [[0,1],[0,2],[0,3],[0,4],[0,5]] },
     { shipId: "battleship", cells: [[2,3],[3,3],[4,3],[5,3]] },
@@ -50,20 +81,15 @@ const INITIAL_ENEMY_SHIPS: ShipHealth[] = [
   { id: "e-destroyer", name: "Destroyer", size: 2, hits: 0, sunk: false },
 ]
 
-// Hidden enemy ship positions (unknown to player)
-const ENEMY_SHIP_CELLS: Record<string, [number, number][]> = {
-  "e-carrier": [[1,0],[1,1],[1,2],[1,3],[1,4]],
-  "e-battleship": [[3,6],[4,6],[5,6],[6,6]],
-  "e-cruiser": [[6,1],[6,2],[6,3]],
-  "e-submarine": [[8,4],[8,5],[8,6]],
-  "e-destroyer": [[9,8],[9,9]],
-}
-
 function getCoordinateLabel(row: number, col: number): string {
   return `${String.fromCharCode(65 + row)}${col + 1}`
 }
 
 export function useCombat() {
+  const { address } = useAccount()
+  const { attack, isLoading: txLoading } = useGameActions()
+  const { toast } = useToast()
+
   const [isPlayerTurn, setIsPlayerTurn] = useState(true)
   const [playerGrid, setPlayerGrid] = useState<CombatCell[][]>(createPlayerFleetGrid)
   const [targetGrid, setTargetGrid] = useState<CombatCell[][]>(createEmptyGrid)
@@ -82,6 +108,13 @@ export function useCombat() {
     onResolve: (() => void) | null
   }>({ open: false, coordinate: "", onResolve: null })
   const logIdRef = useRef(0)
+
+  // Read gameId from localStorage
+  const [gameId, setGameId] = useState<number | null>(null)
+  useEffect(() => {
+    const stored = localStorage.getItem(LS_GAME_ID)
+    if (stored) setGameId(Number(stored))
+  }, [])
 
   const addLogEntry = useCallback(
     (type: "player" | "enemy", coordinate: string, result: "hit" | "miss" | "sunk") => {
@@ -111,128 +144,24 @@ export function useCombat() {
     []
   )
 
-  const checkSunk = useCallback(
-    (
-      shipId: string,
-      ships: ShipHealth[],
-      setShips: React.Dispatch<React.SetStateAction<ShipHealth[]>>
-    ): boolean => {
-      const ship = ships.find((s) => s.id === shipId)
-      if (!ship) return false
-      const newHits = ship.hits + 1
-      const isSunk = newHits >= ship.size
-      setShips((prev) =>
-        prev.map((s) =>
-          s.id === shipId ? { ...s, hits: newHits, sunk: isSunk } : s
-        )
-      )
-      return isSunk
-    },
-    []
-  )
+  // ── Fire at target: submit attack on-chain ─────────────────────────
 
-  // Resolve the attack after the transaction modal succeeds
-  const resolveAttack = useCallback(
-    (row: number, col: number) => {
-      const newTargetGrid = targetGrid.map((r) => r.map((c) => ({ ...c })))
-      const coord = getCoordinateLabel(row, col)
-      let hitShipId: string | null = null
-
-      for (const [shipId, cells] of Object.entries(ENEMY_SHIP_CELLS)) {
-        if (cells.some(([r, c]) => r === row && c === col)) {
-          hitShipId = shipId
-          break
-        }
-      }
-
-      const isHit = hitShipId !== null
-      newTargetGrid[row][col] = {
-        state: isHit ? "hit" : "miss",
-        shipId: hitShipId ?? undefined,
-      }
-      setTargetGrid(newTargetGrid)
-      setPendingCell(null)
-
-      let result: "hit" | "miss" | "sunk" = isHit ? "hit" : "miss"
-      if (isHit && hitShipId) {
-        const wasSunk = checkSunk(hitShipId, enemyShips, setEnemyShips)
-        if (wasSunk) result = "sunk"
-      }
-      addLogEntry("player", coord, result)
-
-      const updatedEnemyShips = enemyShips.map((s) => {
-        if (s.id === hitShipId)
-          return { ...s, hits: s.hits + 1, sunk: s.hits + 1 >= s.size }
-        return s
-      })
-      if (updatedEnemyShips.every((s) => s.sunk)) {
-        setGameOver("win")
-        return
-      }
-
-      setIsPlayerTurn(false)
-
-      setTimeout(() => {
-        const eRow = Math.floor(Math.random() * GRID_SIZE)
-        const eCol = Math.floor(Math.random() * GRID_SIZE)
-        const eCoord = getCoordinateLabel(eRow, eCol)
-        const playerCell = playerGrid[eRow][eCol]
-
-        const newPlayerGrid = playerGrid.map((r) => r.map((c) => ({ ...c })))
-        if (playerCell.state === "ship") {
-          newPlayerGrid[eRow][eCol] = {
-            state: "hit",
-            shipId: playerCell.shipId,
-          }
-          let eResult: "hit" | "miss" | "sunk" = "hit"
-          if (playerCell.shipId) {
-            const wasSunk = checkSunk(
-              playerCell.shipId,
-              playerShips,
-              setPlayerShips
-            )
-            if (wasSunk) eResult = "sunk"
-          }
-          addLogEntry("enemy", eCoord, eResult)
-
-          const updatedPlayerShips = playerShips.map((s) => {
-            if (s.id === playerCell.shipId)
-              return { ...s, hits: s.hits + 1, sunk: s.hits + 1 >= s.size }
-            return s
-          })
-          if (updatedPlayerShips.every((s) => s.sunk)) {
-            setGameOver("lose")
-            setPlayerGrid(newPlayerGrid)
-            return
-          }
-        } else if (playerCell.state === "empty") {
-          newPlayerGrid[eRow][eCol] = { state: "miss" }
-          addLogEntry("enemy", eCoord, "miss")
-        } else {
-          addLogEntry("enemy", eCoord, "miss")
-        }
-
-        setPlayerGrid(newPlayerGrid)
-        setIsPlayerTurn(true)
-      }, 1800)
-    },
-    [
-      targetGrid,
-      playerGrid,
-      enemyShips,
-      playerShips,
-      addLogEntry,
-      checkSunk,
-    ]
-  )
-
-  // Opens the transaction modal and sets up pending state on the grid
   const fireAtTarget = useCallback(
-    (row: number, col: number) => {
+    async (row: number, col: number) => {
       if (!isPlayerTurn || gameOver) return
       const cell = targetGrid[row][col]
       if (cell.state !== "empty") return
 
+      if (!gameId) {
+        toast({
+          title: "No Game",
+          description: "No active game found. Create one from the lobby.",
+          variant: "destructive",
+        })
+        return
+      }
+
+      // Mark cell as pending
       setPendingCell({ row, col })
       const newTargetGrid = targetGrid.map((r) => r.map((c) => ({ ...c })))
       newTargetGrid[row][col] = { state: "pending" }
@@ -240,18 +169,98 @@ export function useCombat() {
 
       const coord = getCoordinateLabel(row, col)
 
+      // Show transaction modal
       setTxModal({
         open: true,
         coordinate: coord,
-        onResolve: () => resolveAttack(row, col),
+        onResolve: null, // Will be set after tx completes
       })
+
+      try {
+        // Submit attack on-chain
+        // Note: in the grid, row = y, col = x
+        const result = await attack(gameId, col, row)
+
+        if (result) {
+          toast({
+            title: "Attack Submitted!",
+            description: `Strike at ${coord} confirmed on-chain. Awaiting reveal...`,
+          })
+
+          addLogEntry("player", coord, "miss") // We won't know hit/miss until reveal
+
+          // Close modal on success
+          setTxModal({ open: false, coordinate: "", onResolve: null })
+
+          // After attacking, it's the opponent's turn to reveal, then they attack
+          setIsPlayerTurn(false)
+
+          // The attack_revealed event listener (useAttackListener) will
+          // update the cell state when the opponent reveals
+        }
+      } catch (err) {
+        console.error("Attack failed:", err)
+
+        // Revert the pending cell
+        const reverted = targetGrid.map((r) => r.map((c) => ({ ...c })))
+        reverted[row][col] = { state: "empty" }
+        setTargetGrid(reverted)
+        setPendingCell(null)
+
+        setTxModal({ open: false, coordinate: "", onResolve: null })
+
+        toast({
+          title: "Attack Failed",
+          description: err instanceof Error ? err.message : "Transaction failed.",
+          variant: "destructive",
+        })
+      }
     },
-    [isPlayerTurn, gameOver, targetGrid, resolveAttack]
+    [isPlayerTurn, gameOver, targetGrid, gameId, attack, toast, addLogEntry]
+  )
+
+  // ── Update grid from revealed events ───────────────────────────────
+
+  const applyRevealedAttack = useCallback(
+    (x: number, y: number, isHit: boolean) => {
+      // Update the target grid (attacks I made)
+      setTargetGrid((prev) => {
+        const updated = prev.map((r) => r.map((c) => ({ ...c })))
+        if (updated[y] && updated[y][x]) {
+          updated[y][x] = { state: isHit ? "hit" : "miss" }
+        }
+        return updated
+      })
+
+      const coord = getCoordinateLabel(y, x)
+      addLogEntry("player", coord, isHit ? "hit" : "miss")
+
+      // After reveal, it may become our turn again
+      setIsPlayerTurn(true)
+    },
+    [addLogEntry]
+  )
+
+  // ── Apply incoming attack on our board ─────────────────────────────
+
+  const applyIncomingAttack = useCallback(
+    (x: number, y: number, isHit: boolean) => {
+      setPlayerGrid((prev) => {
+        const updated = prev.map((r) => r.map((c) => ({ ...c })))
+        if (updated[y] && updated[y][x]) {
+          updated[y][x] = { state: isHit ? "hit" : "miss" }
+        }
+        return updated
+      })
+
+      const coord = getCoordinateLabel(y, x)
+      addLogEntry("enemy", coord, isHit ? "hit" : "miss")
+    },
+    [addLogEntry]
   )
 
   // Close the transaction modal (cancel)
   const closeTxModal = useCallback(() => {
-    // If cancelled during processing, revert the pending cell
     if (pendingCell) {
       const reverted = targetGrid.map((r) => r.map((c) => ({ ...c })))
       reverted[pendingCell.row][pendingCell.col] = { state: "empty" }
@@ -280,5 +289,8 @@ export function useCombat() {
     txModal,
     closeTxModal,
     completeTxModal,
+    applyRevealedAttack,
+    applyIncomingAttack,
+    gameId,
   }
 }

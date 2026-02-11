@@ -1,17 +1,28 @@
 "use client"
 
-import React, { createContext, useContext, useState, useCallback } from "react"
+import React, { createContext, useContext, useEffect, useMemo } from "react"
+import {
+  StarknetConfig,
+  jsonRpcProvider,
+  useConnect,
+  useAccount,
+  useDisconnect,
+} from "@starknet-react/core"
+import { devnet } from "@starknet-react/chains"
+import { BurnerConnector } from "../src/libre/burner-connector"
+
+// ── Wallet context ──────────────────────────────────────────────────
 
 interface WalletContextType {
   isConnected: boolean
-  address: string | null
+  address: string | undefined
   connect: () => void
   disconnect: () => void
 }
 
 const WalletContext = createContext<WalletContextType>({
   isConnected: false,
-  address: null,
+  address: undefined,
   connect: () => {},
   disconnect: () => {},
 })
@@ -20,31 +31,60 @@ export function useWallet() {
   return useContext(WalletContext)
 }
 
-const MOCK_ADDRESSES = [
-  "0x1a2B3c4D5e6F7890AbCdEf1234567890aBcDeF12",
-  "0xFe9876543210AbCdEf1234567890aBcDeF123456",
-  "0xAb12Cd34Ef56789012345678901234567890AbCd",
-]
+// ── Inner component (must be inside StarknetConfig) ─────────────────
 
-export function WalletProvider({ children }: { children: React.ReactNode }) {
-  const [isConnected, setIsConnected] = useState(false)
-  const [address, setAddress] = useState<string | null>(null)
+function InnerWallet({ children }: { children: React.ReactNode }) {
+  const { connect, connectors } = useConnect()
+  const { disconnect } = useDisconnect()
+  const { address, status } = useAccount()
 
-  const connect = useCallback(() => {
-    const randomAddress =
-      MOCK_ADDRESSES[Math.floor(Math.random() * MOCK_ADDRESSES.length)]
-    setAddress(randomAddress)
-    setIsConnected(true)
-  }, [])
+  const burner = useMemo(
+    () => connectors.find((c) => c.id === "burner-wallet"),
+    [connectors],
+  )
 
-  const disconnect = useCallback(() => {
-    setAddress(null)
-    setIsConnected(false)
-  }, [])
+  // Auto-connect on mount
+  useEffect(() => {
+    if (status === "disconnected" && burner) {
+      console.log("Auto-connecting to Burner Wallet…")
+      connect({ connector: burner })
+    }
+  }, [status, burner, connect])
+
+  const handleConnect = () => {
+    if (burner) connect({ connector: burner })
+  }
 
   return (
-    <WalletContext.Provider value={{ isConnected, address, connect, disconnect }}>
+    <WalletContext.Provider
+      value={{
+        isConnected: status === "connected",
+        address,
+        connect: handleConnect,
+        disconnect,
+      }}
+    >
       {children}
     </WalletContext.Provider>
+  )
+}
+
+// ── Provider wrapper ────────────────────────────────────────────────
+
+export function WalletProvider({ children }: { children: React.ReactNode }) {
+  const connectors = useMemo(() => [new BurnerConnector()], [])
+
+  const provider = jsonRpcProvider({
+    rpc: () => ({ nodeUrl: "http://localhost:5050" }),
+  })
+
+  return (
+    <StarknetConfig
+      chains={[devnet]}
+      provider={provider}
+      connectors={connectors}
+    >
+      <InnerWallet>{children}</InnerWallet>
+    </StarknetConfig>
   )
 }
