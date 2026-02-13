@@ -1,6 +1,6 @@
 "use client"
 
-import React, { createContext, useContext, useEffect, useMemo } from "react"
+import React, { createContext, useContext, useMemo } from "react"
 import {
   StarknetConfig,
   jsonRpcProvider,
@@ -8,8 +8,38 @@ import {
   useAccount,
   useDisconnect,
 } from "@starknet-react/core"
-import { devnet } from "@starknet-react/chains"
-import { BurnerConnector } from "../src/libre/burner-connector"
+import { sepolia } from "@starknet-react/chains"
+import { ControllerConnector } from "@cartridge/connector"
+
+import { SEPOLIA_CONFIG } from "@/src/config/sepolia-config"
+
+// ── Session policies ────────────────────────────────────────────────
+// Pre-approve these contract calls so gameplay doesn't require
+// manual signing for every transaction.
+
+const policies = {
+  contracts: {
+    [SEPOLIA_CONFIG.ACTIONS_ADDRESS]: {
+      name: "Dark Waters Actions",
+      methods: [
+        { name: "Spawn Game", entrypoint: "spawn_game" },
+        { name: "Commit Board", entrypoint: "commit_board" },
+        { name: "Attack", entrypoint: "attack" },
+        { name: "Reveal", entrypoint: "reveal" },
+        { name: "Claim Timeout Win", entrypoint: "claim_timeout_win" },
+      ],
+    },
+  },
+}
+
+// ── Controller connector (created once, outside components) ─────────
+
+const controllerConnector = new ControllerConnector({
+  policies,
+  chains: [
+    { rpcUrl: SEPOLIA_CONFIG.RPC_URL },
+  ],
+})
 
 // ── Wallet context ──────────────────────────────────────────────────
 
@@ -38,21 +68,13 @@ function InnerWallet({ children }: { children: React.ReactNode }) {
   const { disconnect } = useDisconnect()
   const { address, status } = useAccount()
 
-  const burner = useMemo(
-    () => connectors.find((c) => c.id === "burner-wallet"),
+  const controller = useMemo(
+    () => connectors.find((c) => c.id === "controller"),
     [connectors],
   )
 
-  // Auto-connect on mount
-  useEffect(() => {
-    if (status === "disconnected" && burner) {
-      console.log("Auto-connecting to Burner Wallet…")
-      connect({ connector: burner })
-    }
-  }, [status, burner, connect])
-
   const handleConnect = () => {
-    if (burner) connect({ connector: burner })
+    if (controller) connect({ connector: controller })
   }
 
   return (
@@ -72,15 +94,15 @@ function InnerWallet({ children }: { children: React.ReactNode }) {
 // ── Provider wrapper ────────────────────────────────────────────────
 
 export function WalletProvider({ children }: { children: React.ReactNode }) {
-  const connectors = useMemo(() => [new BurnerConnector()], [])
+  const connectors = useMemo(() => [controllerConnector], [])
 
   const provider = jsonRpcProvider({
-    rpc: () => ({ nodeUrl: "http://localhost:5050" }),
+    rpc: () => ({ nodeUrl: SEPOLIA_CONFIG.RPC_URL }),
   })
 
   return (
     <StarknetConfig
-      chains={[devnet]}
+      chains={[sepolia]}
       provider={provider}
       connectors={connectors}
     >

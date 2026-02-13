@@ -7,6 +7,7 @@ import { useAccount } from "@starknet-react/core"
 import { useGameActions } from "@/src/hooks/useGameActions"
 import { BoardMerkle, type Ship } from "@/src/utils/merkle"
 import { useToast } from "@/hooks/use-toast"
+import { SEPOLIA_CONFIG } from "@/src/config/sepolia-config"
 
 // ── localStorage keys ────────────────────────────────────────────────
 
@@ -17,8 +18,7 @@ const LS_SALT = "dark-waters-salt"
 // ── Dojo World contract ──────────────────────────────────────────────
 // All Dojo events are emitted from the WORLD contract, NOT the Actions contract.
 
-const WORLD_ADDRESS =
-  "0x042ec066eef86a6ae688ccc48ad45a887ab142386d9a43e7949e17f9198ee8ff"
+const WORLD_ADDRESS = SEPOLIA_CONFIG.WORLD_ADDRESS
 
 // Dojo wraps custom events in "EventEmitted":
 //   keys[0] = EventEmitted selector
@@ -89,7 +89,7 @@ export function useAttackListener(
   const revealedSetRef = useRef<Set<string>>(new Set())
 
   const provider = useRef(
-    new RpcProvider({ nodeUrl: "http://localhost:5050" })
+    new RpcProvider({ nodeUrl: SEPOLIA_CONFIG.RPC_URL })
   )
 
   // ── Auto-reveal logic ──────────────────────────────────────────────
@@ -192,7 +192,7 @@ export function useAttackListener(
         const result = await provider.current.getEvents({
           address: WORLD_ADDRESS,
           keys: [[EVENT_EMITTED_SELECTOR]],
-          from_block: { block_number: 0 },
+          from_block: { block_number: SEPOLIA_CONFIG.DEPLOYED_BLOCK },
           to_block: "latest",
           chunk_size: 200,
           continuation_token: undefined,

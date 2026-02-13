@@ -3,7 +3,9 @@ import { useCallback, useState } from 'react';
 import { useAccount } from '@starknet-react/core';
 import { CallData } from 'starknet';
 
-const CONTRACT_ADDRESS = '0x01b7e17ad6bbc599b91ae78065708d5d49d6eaccf97908f36e9c1066d7c7085f';
+import { SEPOLIA_CONFIG } from '@/src/config/sepolia-config';
+
+const CONTRACT_ADDRESS = SEPOLIA_CONFIG.ACTIONS_ADDRESS;
 
 export const useGameActions = () => {
     const { account } = useAccount();
@@ -18,23 +20,34 @@ export const useGameActions = () => {
         setIsLoading(true);
         setError(null);
         try {
-            // Compile calldata (handles array lengths for Spans etc.)
             const calldata = CallData.compile(args);
 
-            const result = await account.execute({
+            console.log(`[GameActions] Executing ${entrypoint}`, {
+                contractAddress: CONTRACT_ADDRESS,
+                accountAddress: account.address,
+                calldata,
+            });
+
+            // The Cartridge Controller (keychain iframe) handles nonce,
+            // fee estimation, and signing internally via wallet_addInvokeTransaction.
+            // We only pass calls — no nonce/options are supported.
+            const result = await account.execute([{
                 contractAddress: CONTRACT_ADDRESS,
                 entrypoint,
                 calldata
-            });
+            }]);
+
             console.log(`Transaction submitted for ${entrypoint}:`, result.transaction_hash);
 
-            // Wait for receipt so callers can parse events
             const receipt = await account.waitForTransaction(result.transaction_hash);
             console.log(`Transaction confirmed for ${entrypoint}`);
 
             return { transaction_hash: result.transaction_hash, receipt };
-        } catch (err) {
+        } catch (err: any) {
             console.error(`Error executing ${entrypoint}:`, err);
+            if (err?.data) {
+                console.error(`Error data:`, JSON.stringify(err.data, null, 2));
+            }
             setError(err as Error);
             throw err;
         } finally {
@@ -55,8 +68,6 @@ export const useGameActions = () => {
     }, [execute]);
 
     const reveal = useCallback(async (gameId: number, x: number, y: number, salt: string, isShip: boolean, proof: string[]) => {
-        // [game_id, x, y, salt, is_ship, proof]
-        // CallData.compile handles the array 'proof' by adding its length as a prefix (Span serialization)
         return execute('reveal', [gameId, x, y, salt, isShip ? 1 : 0, proof]);
     }, [execute]);
 

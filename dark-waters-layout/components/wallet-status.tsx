@@ -35,7 +35,7 @@ export function WalletStatus() {
               className="animate-pulse-glow h-8 gap-2 rounded-full bg-primary px-4 text-xs font-medium text-primary-foreground hover:bg-primary/90"
             >
               <Wallet className="h-3.5 w-3.5" />
-              Connect Wallet
+              Connect with Cartridge
             </Button>
           </TooltipTrigger>
           <TooltipContent>Connect your wallet to play</TooltipContent>

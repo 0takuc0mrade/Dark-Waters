@@ -1,0 +1,26 @@
+[world]
+name = "dark_waters"
+description = "The official Dojo Starter guide, the quickest and most streamlined way to get your Dojo Autonomous World up and running. This guide will assist you with the initial setup, from cloning the repository to deploying your world."
+cover_uri = "file://assets/cover.png"
+icon_uri = "file://assets/icon.png"
+website = "https://github.com/dojoengine/dojo-starter"
+seed = "dark_waters"
+
+[world.socials]
+x = "https://x.com/ohayo_dojo"
+discord = "https://discord.gg/FB2wR6uF"
+github = "https://github.com/dojoengine/dojo-starter"
+telegram = "https://t.me/dojoengine"
+
+[namespace]
+default = "dark_waters"
+
+[env]
+rpc_url = "https://api.cartridge.gg/x/starknet/sepolia"
+# account_address = "" # env: DOJO_ACCOUNT_ADDRESS
+# private_key = ""     # env: DOJO_PRIVATE_KEY
+world_address = "0x042ec066eef86a6ae688ccc48ad45a887ab142386d9a43e7949e17f9198ee8ff"
+world_block = 6449650
+
+[writers]
+"dark_waters" = ["dark_waters-Actions"]
