@@ -139,9 +139,9 @@ export function ShipPlacement() {
           description: "Fleet positions secured on-chain. Preparing for battle…",
         })
 
-        // Navigate to combat after a short delay
+        // Navigate to home to let the main logic handle phase routing
         setTimeout(() => {
-          router.push("/combat")
+          router.push("/")
         }, 1500)
       }
     } catch (err) {

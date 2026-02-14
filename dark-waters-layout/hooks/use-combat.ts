@@ -5,6 +5,7 @@ import React from "react"
 import { useState, useCallback, useRef, useEffect } from "react"
 import { useAccount } from "@starknet-react/core"
 import { useGameActions } from "@/src/hooks/useGameActions"
+import { useGameState } from "@/hooks/useGameState"
 import { useToast } from "@/hooks/use-toast"
 import type {
   CombatCell,
@@ -115,6 +116,26 @@ export function useCombat() {
     const stored = localStorage.getItem(LS_GAME_ID)
     if (stored) setGameId(Number(stored))
   }, [])
+
+  // ── Game State Sync ────────────────────────────────────────────────
+  const { gameState } = useGameState(gameId)
+
+  // Sync turn state with blockchain events
+  useEffect(() => {
+    if (gameState) {
+        // If game is over, set game over state
+        if (!gameState.isActive && gameState.winner) {
+            const isWin = BigInt(gameState.winner) === BigInt(address || "0x0");
+            setGameOver(isWin ? "win" : "lose");
+        }
+
+        // Update turn if not game over
+        // We only update if the turn has CHANGED to avoid jitter/loops if we have local optimistic updates
+        if (gameState.isActive) {
+            setIsPlayerTurn(gameState.isMyTurn);
+        }
+    }
+  }, [gameState, address]);
 
   const addLogEntry = useCallback(
     (type: "player" | "enemy", coordinate: string, result: "hit" | "miss" | "sunk") => {
