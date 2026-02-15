@@ -102,9 +102,14 @@ Wallet/session behavior:
 
 ### Before the match
 
-1. Connect wallet.
-2. Player 1 opens lobby and creates a game using Player 2 address.
-3. Player 2 opens the same app and joins that game from "My Games".
+1. Connect wallet with Cartridge.
+2. If you are a new Cartridge user, fund your Cartridge address first:
+   - Copy your Cartridge address from the app.
+   - Open your Ready Wallet or Braavos wallet.
+   - Send Sepolia STRK to the copied Cartridge address.
+   - Wait for confirmation, then return to the app.
+3. Player 1 opens lobby and creates a game using Player 2 address.
+4. Player 2 opens the same app and joins that game from "My Games".
 
 ### Setup phase
 
