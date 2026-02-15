@@ -36,6 +36,7 @@ const ATTACK_MADE_EVENT_HASH =
 // ── Types ────────────────────────────────────────────────────────────
 
 interface AttackMadeEvent {
+  id: string
   gameId: number
   attacker: string
   x: number
@@ -43,6 +44,7 @@ interface AttackMadeEvent {
 }
 
 interface AttackRevealedEvent {
+  id: string
   gameId: number
   x: number
   y: number
@@ -54,17 +56,62 @@ export interface UseAttackListenerOptions {
   pollInterval?: number
   /** Whether the listener is active */
   enabled?: boolean
+  /** Active game id; falls back to localStorage if omitted */
+  gameId?: number | null
 }
 
 export interface UseAttackListenerResult {
   /** Attacks made against my board (that I need to reveal) */
   incomingAttacks: AttackMadeEvent[]
-  /** Revealed attack results (to update target grid) */
-  revealedAttacks: AttackRevealedEvent[]
+  /** Reveals for attacks I made (to update target grid) */
+  myRevealedAttacks: AttackRevealedEvent[]
+  /** Reveals for attacks enemy made on me (to update player grid + fleet) */
+  enemyRevealedAttacks: AttackRevealedEvent[]
   /** Whether auto-reveal is currently processing */
   isRevealing: boolean
   /** The last error, if any */
   lastError: string | null
+}
+
+// ── Known event hashes (verified from on-chain) ─────────────────────
+
+const ATTACK_REVEALED_EVENT_HASH =
+  "0x2b1e1c82d7adc6a31dcfd63a739314b26b4319934d854c9906d1039b62d8d91"
+
+function sameAddress(a: string, b: string): boolean {
+  try {
+    return BigInt(a) === BigInt(b)
+  } catch {
+    return a.toLowerCase() === b.toLowerCase()
+  }
+}
+
+function getBoardKey(gameId: number, address: string) {
+  return `${LS_BOARD}:${gameId}:${address.toLowerCase()}`
+}
+
+function getSaltKey(gameId: number, address: string) {
+  return `${LS_SALT}:${gameId}:${address.toLowerCase()}`
+}
+
+async function fetchAllWorldEvents(provider: RpcProvider) {
+  const events: any[] = []
+  let continuationToken: string | undefined
+
+  do {
+    const page = await provider.getEvents({
+      address: WORLD_ADDRESS,
+      keys: [[EVENT_EMITTED_SELECTOR]],
+      from_block: { block_number: SEPOLIA_CONFIG.DEPLOYED_BLOCK },
+      to_block: "latest",
+      chunk_size: 500,
+      continuation_token: continuationToken,
+    })
+    events.push(...page.events)
+    continuationToken = page.continuation_token ?? undefined
+  } while (continuationToken)
+
+  return events
 }
 
 // ── Hook ─────────────────────────────────────────────────────────────
@@ -72,41 +119,59 @@ export interface UseAttackListenerResult {
 export function useAttackListener(
   options: UseAttackListenerOptions = {}
 ): UseAttackListenerResult {
-  const { pollInterval = 4000, enabled = true } = options
+  const { pollInterval = 4000, enabled = true, gameId: optionGameId = null } = options
 
   const { account, address } = useAccount()
   const { reveal } = useGameActions()
   const { toast } = useToast()
 
   const [incomingAttacks, setIncomingAttacks] = useState<AttackMadeEvent[]>([])
-  const [revealedAttacks, setRevealedAttacks] = useState<AttackRevealedEvent[]>(
-    []
-  )
+  const [myRevealedAttacks, setMyRevealedAttacks] = useState<AttackRevealedEvent[]>([])
+  const [enemyRevealedAttacks, setEnemyRevealedAttacks] = useState<AttackRevealedEvent[]>([])
   const [isRevealing, setIsRevealing] = useState(false)
   const [lastError, setLastError] = useState<string | null>(null)
 
   // Track which attacks we've already auto-revealed to avoid duplicates
   const revealedSetRef = useRef<Set<string>>(new Set())
+  const incomingSeenRef = useRef<Set<string>>(new Set())
+  const myRevealSeenRef = useRef<Set<string>>(new Set())
+  const enemyRevealSeenRef = useRef<Set<string>>(new Set())
 
   const provider = useRef(
     new RpcProvider({ nodeUrl: SEPOLIA_CONFIG.RPC_URL })
   )
 
+  useEffect(() => {
+    setIncomingAttacks([])
+    setMyRevealedAttacks([])
+    setEnemyRevealedAttacks([])
+    setLastError(null)
+    revealedSetRef.current.clear()
+    incomingSeenRef.current.clear()
+    myRevealSeenRef.current.clear()
+    enemyRevealSeenRef.current.clear()
+  }, [optionGameId, address])
+
   // ── Auto-reveal logic ──────────────────────────────────────────────
 
   const handleAutoReveal = useCallback(
     async (event: AttackMadeEvent) => {
-      const key = `${event.gameId}-${event.x}-${event.y}`
+      if (!address) return
+      const key = event.id
       if (revealedSetRef.current.has(key)) return
       revealedSetRef.current.add(key)
 
       // Load board and salt from localStorage
-      const boardJson = localStorage.getItem(LS_BOARD)
-      const saltHex = localStorage.getItem(LS_SALT)
+      const boardJson =
+        localStorage.getItem(getBoardKey(event.gameId, address)) ??
+        localStorage.getItem(LS_BOARD)
+      const saltHex =
+        localStorage.getItem(getSaltKey(event.gameId, address)) ??
+        localStorage.getItem(LS_SALT)
 
       if (!boardJson || !saltHex) {
         console.warn("Cannot auto-reveal: board/salt not found in localStorage")
-        // Don't set lastError to avoid UI noise
+        revealedSetRef.current.delete(key)
         return
       }
 
@@ -137,11 +202,6 @@ export function useAttackListener(
           isShip,
           proofHex
         )
-
-        toast({
-          title: isShip ? "Hit Revealed! 💥" : "Miss Revealed 🌊",
-          description: `Auto-revealed attack at (${event.x}, ${event.y}).`,
-        })
       } catch (err: any) {
         const msg = err?.message || ""
 
@@ -170,7 +230,7 @@ export function useAttackListener(
         setIsRevealing(false)
       }
     },
-    [reveal, toast]
+    [address, reveal, toast]
   )
 
   // ── Polling effect ─────────────────────────────────────────────────
@@ -178,107 +238,91 @@ export function useAttackListener(
   useEffect(() => {
     if (!enabled || !address || !account) return
 
-    const gameIdStr = localStorage.getItem(LS_GAME_ID)
-    if (!gameIdStr) return
-
-    const gameId = Number(gameIdStr)
+    const localGameId = localStorage.getItem(LS_GAME_ID)
+    const gameId = optionGameId ?? (localGameId ? Number(localGameId) : null)
+    if (!gameId) return
     let cancelled = false
 
     const poll = async () => {
       if (cancelled) return
 
       try {
-        // Fetch all EventEmitted events from the WORLD contract
-        const result = await provider.current.getEvents({
-          address: WORLD_ADDRESS,
-          keys: [[EVENT_EMITTED_SELECTOR]],
-          from_block: { block_number: SEPOLIA_CONFIG.DEPLOYED_BLOCK },
-          to_block: "latest",
-          chunk_size: 200,
-          continuation_token: undefined,
-        })
+        const events = await fetchAllWorldEvents(provider.current)
 
         if (cancelled) return
 
-        for (const event of result.events) {
+        const pendingByCoordinate = new Map<string, AttackMadeEvent[]>()
+        let attackIndex = 0
+        let revealIndex = 0
+
+        for (const event of events) {
           if (!event.keys || event.keys.length < 2) continue
-          if (!event.data || event.data.length < 4) continue
+          if (!event.data || event.data.length < 6) continue
 
           const eventNameHash = event.keys[1]
 
-          // ── attack_made (hash matches) ────────────────────────────────────────
           if (eventNameHash.toLowerCase() === ATTACK_MADE_EVENT_HASH.toLowerCase()) {
-            const keyCount = Number(event.data[0])
-            if (keyCount !== 1 || event.data.length < 6) continue
-
             const evGameId = Number(event.data[1])
             if (evGameId !== gameId) continue
 
             const attacker = event.data[3]
             const x = Number(event.data[4])
             const y = Number(event.data[5])
+            if (x < 0 || x > 9 || y < 0 || y > 9) continue
 
-            // Robust address comparison using BigInt to handle padding/case
-            let isMe = false
-            try {
-              isMe = BigInt(attacker) === BigInt(address)
-            } catch (e) {
-              // fallback if parsing fails
-              isMe = attacker.toLowerCase() === address.toLowerCase()
-            }
+            const isMe = sameAddress(attacker, address)
+            const id = `${evGameId}:attack:${attackIndex}:${attacker}:${x}:${y}`
+            attackIndex += 1
+            const attackEvent: AttackMadeEvent = { id, gameId: evGameId, attacker, x, y }
+            const coordKey = `${x},${y}`
+            const queue = pendingByCoordinate.get(coordKey) ?? []
+            queue.push(attackEvent)
+            pendingByCoordinate.set(coordKey, queue)
 
             if (!isMe) {
-              const attackEvent: AttackMadeEvent = {
-                gameId: evGameId,
-                attacker,
-                x,
-                y,
+              if (!incomingSeenRef.current.has(id)) {
+                incomingSeenRef.current.add(id)
+                setIncomingAttacks((prev) => [...prev, attackEvent])
               }
-
-              setIncomingAttacks((prev) => {
-                const exists = prev.some(
-                  (a) =>
-                    a.gameId === evGameId &&
-                    a.x === x &&
-                    a.y === y
-                )
-                if (exists) return prev
-                return [...prev, attackEvent]
-              })
-
-              // Trigger auto-reveal
+              // Retry-safe: handleAutoReveal is internally deduped by revealedSetRef.
               handleAutoReveal(attackEvent)
             }
-            continue
           }
 
-          // ── attack_revealed (fallback match) ───────────────────────────
-          {
-            const keyCount = Number(event.data[0])
-            if (keyCount !== 1) continue
-
+          if (eventNameHash.toLowerCase() === ATTACK_REVEALED_EVENT_HASH.toLowerCase()) {
             const evGameId = Number(event.data[1])
             if (evGameId !== gameId) continue
 
-            const dataCount = Number(event.data[2])
-            if (dataCount !== 3) continue
+            const x = Number(event.data[3])
+            const y = Number(event.data[4])
+            const isHit = Number(event.data[5]) === 1
 
-            // Distinguish from attack_made: data[3] is x coordinate (small number)
-            const possibleX = Number(event.data[3])
-            if (!isNaN(possibleX) && possibleX >= 0 && possibleX <= 9) {
-              const x = possibleX
-              const y = Number(event.data[4])
-              const isHit = Number(event.data[5]) === 1
+            if (x < 0 || x > 9 || y < 0 || y > 9) continue
 
-              if (y >= 0 && y <= 9) {
-                setRevealedAttacks((prev) => {
-                  const exists = prev.some(
-                    (a) => a.gameId === evGameId && a.x === x && a.y === y
-                  )
-                  if (exists) return prev
-                  return [...prev, { gameId: evGameId, x, y, isHit }]
-                })
-              }
+            const coordKey = `${x},${y}`
+            const queue = pendingByCoordinate.get(coordKey)
+            const matchedAttack = queue?.shift()
+            if (!matchedAttack) continue
+            if (queue && queue.length === 0) pendingByCoordinate.delete(coordKey)
+
+            const revealId = `${evGameId}:reveal:${revealIndex}:${matchedAttack.attacker}:${x}:${y}`
+            revealIndex += 1
+            const revealEvent: AttackRevealedEvent = {
+              id: revealId,
+              gameId: evGameId,
+              x,
+              y,
+              isHit,
+            }
+
+            if (sameAddress(matchedAttack.attacker, address)) {
+              if (myRevealSeenRef.current.has(revealId)) continue
+              myRevealSeenRef.current.add(revealId)
+              setMyRevealedAttacks((prev) => [...prev, revealEvent])
+            } else {
+              if (enemyRevealSeenRef.current.has(revealId)) continue
+              enemyRevealSeenRef.current.add(revealId)
+              setEnemyRevealedAttacks((prev) => [...prev, revealEvent])
             }
           }
         }
@@ -299,11 +343,12 @@ export function useAttackListener(
       cancelled = true
       clearInterval(intervalId)
     }
-  }, [enabled, address, account, pollInterval, handleAutoReveal])
+  }, [enabled, address, account, pollInterval, optionGameId, handleAutoReveal])
 
   return {
     incomingAttacks,
-    revealedAttacks,
+    myRevealedAttacks,
+    enemyRevealedAttacks,
     isRevealing,
     lastError,
   }

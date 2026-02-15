@@ -38,7 +38,9 @@ export default function Page() {
   }
 
   if (gameId) {
-    if (loadingState) {
+    // Only show full-page loader on the very first load (no state yet).
+    // Once we have gameState, background polls update silently.
+    if (!gameState && loadingState) {
         return (
             <div className="min-h-screen flex items-center justify-center bg-background">
                 <div className="flex flex-col items-center gap-4">
@@ -124,7 +126,7 @@ export default function Page() {
 function LobbyInterface({ onJoin }: { onJoin: (id: number) => void }) {
     const { address } = useWallet()
     const { spawnGame, isLoading } = useGameActions()
-    const { games, isLoading: loadingGames } = useMyGames()
+    const { games, isLoading: loadingGames, refresh } = useMyGames()
     const { toast } = useToast()
     const [opponent, setOpponent] = useState("")
     const [activeTab, setActiveTab] = useState("host")
@@ -210,6 +212,18 @@ function LobbyInterface({ onJoin }: { onJoin: (id: number) => void }) {
                 </TabsContent>
 
                 <TabsContent value="join" className="p-6 pt-4">
+                    <div className="flex justify-between items-center mb-2">
+                        <span className="text-sm text-muted-foreground">Your Games</span>
+                        <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-6 w-6"
+                            onClick={() => refresh()}
+                            disabled={loadingGames}
+                        >
+                            <RefreshCw className={`h-4 w-4 ${loadingGames ? "animate-spin" : ""}`} />
+                        </Button>
+                    </div>
                     <ScrollArea className="h-[300px] w-full rounded-md border p-4">
                         {loadingGames ? (
                             <div className="flex justify-center py-8"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>

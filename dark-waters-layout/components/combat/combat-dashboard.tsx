@@ -7,7 +7,6 @@ import { TurnIndicator } from "./turn-indicator"
 import { CombatGrid } from "./combat-grid"
 import { BattleLog } from "./battle-log"
 import { FleetStatus } from "./fleet-status"
-import { TransactionModal } from "./transaction-modal"
 
 export function CombatDashboard() {
   const {
@@ -19,36 +18,32 @@ export function CombatDashboard() {
     enemyShips,
     gameOver,
     fireAtTarget,
-    txModal,
-    closeTxModal,
-    completeTxModal,
+    gameId,
     applyRevealedAttack,
     applyIncomingAttack,
-    gameId,
   } = useCombat()
 
   // ── Event listener for auto-reveal + grid updates ──────────────────
 
-  const { revealedAttacks, incomingAttacks, isRevealing } = useAttackListener({
+  const { myRevealedAttacks, enemyRevealedAttacks, isRevealing } = useAttackListener({
     enabled: gameId !== null,
+    gameId,
     pollInterval: 4000,
   })
 
-  // Apply revealed attacks to our target grid (attacks we made, now revealed)
+  // Apply MY attack reveals to the target grid (attacks I made, now revealed)
   useEffect(() => {
-    for (const revealed of revealedAttacks) {
-      applyRevealedAttack(revealed.x, revealed.y, revealed.isHit)
+    for (const revealed of myRevealedAttacks) {
+      applyRevealedAttack(revealed.id, revealed.x, revealed.y, revealed.isHit)
     }
-  }, [revealedAttacks, applyRevealedAttack])
+  }, [myRevealedAttacks, applyRevealedAttack])
 
-  // Apply incoming attacks to our player grid (attacks enemy made on us)
+  // Apply ENEMY attack reveals to the player grid (attacks against me, now revealed)
   useEffect(() => {
-    for (const incoming of incomingAttacks) {
-      // We'll get the actual hit/miss info from the attack_revealed event
-      // For now, just mark the cell as "pending" to show it was attacked
-      // The auto-reveal will happen automatically via useAttackListener
+    for (const revealed of enemyRevealedAttacks) {
+      applyIncomingAttack(revealed.id, revealed.x, revealed.y, revealed.isHit)
     }
-  }, [incomingAttacks, applyIncomingAttack])
+  }, [enemyRevealedAttacks, applyIncomingAttack])
 
   return (
     <div className="mx-auto max-w-6xl px-3 py-4 lg:px-6 lg:py-6">
@@ -117,14 +112,6 @@ export function CombatDashboard() {
           <BattleLog entries={battleLog} />
         </div>
       </div>
-
-      {/* Transaction Processing Modal */}
-      <TransactionModal
-        open={txModal.open}
-        coordinate={txModal.coordinate}
-        onClose={closeTxModal}
-        onComplete={completeTxModal}
-      />
     </div>
   )
 }

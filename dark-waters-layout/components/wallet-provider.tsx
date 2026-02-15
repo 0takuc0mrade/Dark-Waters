@@ -105,6 +105,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
       chains={[sepolia]}
       provider={provider}
       connectors={connectors}
+      autoConnect
     >
       <InnerWallet>{children}</InnerWallet>
     </StarknetConfig>

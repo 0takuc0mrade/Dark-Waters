@@ -55,11 +55,11 @@ export function TopBar() {
                   </BreadcrumbLink>
                 </BreadcrumbItem>
                 <BreadcrumbSeparator />
-                <BreadcrumbItem>
+                {/* <BreadcrumbItem>
                   <BreadcrumbPage className="text-xs font-medium text-foreground">
                     Match #42
                   </BreadcrumbPage>
-                </BreadcrumbItem>
+                </BreadcrumbItem> */}
               </BreadcrumbList>
             </Breadcrumb>
           </nav>

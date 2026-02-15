@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation"
 import { useShipPlacement } from "@/hooks/use-ship-placement"
 import { useGameActions } from "@/src/hooks/useGameActions"
 import { useToast } from "@/hooks/use-toast"
+import { useWallet } from "@/components/wallet-provider"
 import { BoardMerkle, type Ship as MerkleShip } from "@/src/utils/merkle"
 import { PlacementGrid } from "./placement-grid"
 import { ShipControls } from "./ship-controls"
@@ -14,6 +15,14 @@ import { ShipControls } from "./ship-controls"
 const LS_GAME_ID = "dark-waters-gameId"
 const LS_BOARD = "dark-waters-board"
 const LS_SALT = "dark-waters-salt"
+
+function getBoardKey(gameId: number, address: string): string {
+  return `${LS_BOARD}:${gameId}:${address.toLowerCase()}`
+}
+
+function getSaltKey(gameId: number, address: string): string {
+  return `${LS_SALT}:${gameId}:${address.toLowerCase()}`
+}
 
 export function ShipPlacement() {
   const router = useRouter()
@@ -34,8 +43,9 @@ export function ShipPlacement() {
     selectShip,
   } = useShipPlacement()
 
-  const { commitBoard, isLoading } = useGameActions()
+  const { commitBoard } = useGameActions()
   const { toast } = useToast()
+  const { address } = useWallet()
   const [isCommitting, setIsCommitting] = useState(false)
 
   const handleCellClick = useCallback(
@@ -124,6 +134,10 @@ export function ShipPlacement() {
     // Save to localStorage BEFORE submitting tx (so auto-reveal works)
     localStorage.setItem(LS_BOARD, JSON.stringify(board))
     localStorage.setItem(LS_SALT, saltHex)
+    if (address) {
+      localStorage.setItem(getBoardKey(gameId, address), JSON.stringify(board))
+      localStorage.setItem(getSaltKey(gameId, address), saltHex)
+    }
 
     setIsCommitting(true)
     toast({
@@ -154,7 +168,7 @@ export function ShipPlacement() {
     } finally {
       setIsCommitting(false)
     }
-  }, [grid, commitBoard, toast, router])
+  }, [grid, commitBoard, toast, router, address])
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-6 lg:px-6 lg:py-8">

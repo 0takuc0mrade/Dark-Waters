@@ -1,252 +1,268 @@
+import { useState, useEffect, useRef, useCallback } from "react"
+import { RpcProvider } from "starknet"
+import { useAccount } from "@starknet-react/core"
+import { SEPOLIA_CONFIG } from "@/src/config/sepolia-config"
 
-import { useState, useEffect, useRef } from 'react';
-import { RpcProvider, num } from 'starknet';
-import { useAccount } from '@starknet-react/core';
-import { SEPOLIA_CONFIG } from '@/src/config/sepolia-config';
+const WORLD_ADDRESS = SEPOLIA_CONFIG.WORLD_ADDRESS
+const EVENT_EMITTED_SELECTOR =
+  "0x1c93f6e4703ae90f75338f29bffbe9c1662200cee981f49afeec26e892debcd"
 
-const WORLD_ADDRESS = SEPOLIA_CONFIG.WORLD_ADDRESS;
-const EVENT_EMITTED_SELECTOR = "0x1c93f6e4703ae90f75338f29bffbe9c1662200cee981f49afeec26e892debcd";
+// Event Hashes — extracted from actual on-chain events
+const GAME_SPAWNED_EVENT_HASH =
+  "0x7003ad3d04ce3b53a28689df967350b9610b921088b7e4c6fa97cb34e892798"
+const BOARD_COMMITTED_EVENT_HASH =
+  "0x575b6f66dbb5b17fb1631bcf236f4a0328f93190da5ce469732b822e40671e3"
+const ATTACK_REVEALED_EVENT_HASH =
+  "0x2b1e1c82d7adc6a31dcfd63a739314b26b4319934d854c9906d1039b62d8d91"
 
-// Event Hashes
-const GAME_SPAWNED_EVENT_HASH = "0x2506e765ec1694f56f145b20757bd19327889df50702d131f137eb4236b2839";
-const BOARD_COMMITTED_EVENT_HASH = "0x2de79eb1e428c946e9dfd00f684497a7e32479e000451996515869403d982b6"; // poseidon(Actions, board_committed)
-const ATTACK_REVEALED_EVENT_HASH = "0x32863952ba56dc9359e218290f6dea0636735db9d6df4b73e51cd0ba973167a";
-
-export type GamePhase = "Setup" | "Playing" | "Finished";
+export type GamePhase = "Setup" | "Playing" | "Finished"
 
 export interface GameState {
-    gameId: number;
-    player1: string;
-    player2: string;
-    isPlayer1: boolean;
-    isPlayer2: boolean;
-    isMyTurn: boolean;
-    isActive: boolean;
-    winner: string | null;
-    phase: GamePhase;
-    isMyCommit: boolean;
+  gameId: number
+  player1: string
+  player2: string
+  isPlayer1: boolean
+  isPlayer2: boolean
+  isMyTurn: boolean
+  isActive: boolean
+  winner: string | null
+  phase: GamePhase
+  isMyCommit: boolean
+}
+
+function sameAddress(a: string, b: string): boolean {
+  try {
+    return BigInt(a) === BigInt(b)
+  } catch {
+    return a.toLowerCase() === b.toLowerCase()
+  }
+}
+
+async function fetchAllEvents(provider: RpcProvider, eventHash: string) {
+  const events: any[] = []
+  let continuationToken: string | undefined
+
+  do {
+    const page = await provider.getEvents({
+      address: WORLD_ADDRESS,
+      keys: [[EVENT_EMITTED_SELECTOR], [eventHash]],
+      from_block: { block_number: SEPOLIA_CONFIG.DEPLOYED_BLOCK },
+      to_block: "latest",
+      chunk_size: 500,
+      continuation_token: continuationToken,
+    })
+    events.push(...page.events)
+    continuationToken = page.continuation_token ?? undefined
+  } while (continuationToken)
+
+  return events
 }
 
 export const useGameState = (gameId: number | null) => {
-    const { address } = useAccount();
-    const [gameState, setGameState] = useState<GameState | null>(null);
-    const [isLoading, setIsLoading] = useState(false);
+  const { address } = useAccount()
+  const [gameState, setGameState] = useState<GameState | null>(null)
+  const [isLoading, setIsLoading] = useState(false)
+  const provider = useRef(new RpcProvider({ nodeUrl: SEPOLIA_CONFIG.RPC_URL }))
+  const hasLoaded = useRef(false)
 
-    // Use a persistent provider
-    const provider = useRef(new RpcProvider({ nodeUrl: SEPOLIA_CONFIG.RPC_URL }));
+  useEffect(() => {
+    if (!gameId || !address) {
+      setGameState(null)
+      setIsLoading(false)
+      hasLoaded.current = false
+      return
+    }
 
-    useEffect(() => {
-        if (!gameId || !address) return;
+    hasLoaded.current = false
+    let cancelled = false
 
-        let cancelled = false;
+    const fetchState = async () => {
+      if (!hasLoaded.current) setIsLoading(true)
 
-        const fetchState = async () => {
-            setIsLoading(true);
-            try {
-                // 1. Fetch GameSpawned
-                const spawnEvents = await provider.current.getEvents({
-                    address: WORLD_ADDRESS,
-                    keys: [[EVENT_EMITTED_SELECTOR], [GAME_SPAWNED_EVENT_HASH]],
-                    from_block: { block_number: SEPOLIA_CONFIG.DEPLOYED_BLOCK },
-                    to_block: 'latest',
-                    chunk_size: 1000,
-                });
+      try {
+        const [spawnEvents, commitEvents, revealEvents] = await Promise.all([
+          fetchAllEvents(provider.current, GAME_SPAWNED_EVENT_HASH),
+          fetchAllEvents(provider.current, BOARD_COMMITTED_EVENT_HASH),
+          fetchAllEvents(provider.current, ATTACK_REVEALED_EVENT_HASH),
+        ])
 
-                if (cancelled) return;
+        if (cancelled) return
 
-                const spawnEvent = spawnEvents.events.find(e => e.data && Number(e.data[1]) === gameId);
+        const spawnEvent = spawnEvents.find(
+          (event) => event.data && Number(event.data[1]) === gameId
+        )
 
-                if (!spawnEvent) {
-                    console.warn(`Game ${gameId} not found on-chain.`);
-                    setGameState(null);
-                    return;
-                }
+        if (!spawnEvent || !spawnEvent.data || spawnEvent.data.length < 5) {
+          console.warn(`Game ${gameId} not found on-chain`)
+          setGameState((previous) =>
+            previous && previous.gameId === gameId ? previous : null
+          )
+          return
+        }
 
-                const player1 = spawnEvent.data[3];
-                const player2 = spawnEvent.data[4];
+        const player1 = spawnEvent.data[3]
+        const player2 = spawnEvent.data[4]
+        const isPlayer1 = sameAddress(address, player1)
+        const isPlayer2 = sameAddress(address, player2)
 
-                const isP1 = BigInt(address) === BigInt(player1);
-                const isP2 = BigInt(address) === BigInt(player2);
+        let phase: GamePhase = "Setup"
+        let isActive = true
+        let winner: string | null = null
 
-                // 2. Determine Phase
-                // Default to Setup (0)
-                let phase: GamePhase = "Setup";
-                let isActive = true;
-                let winner = null;
+        const gameCommits = commitEvents.filter(
+          (event) => event.data && Number(event.data[1]) === gameId
+        )
+        const p1Committed = gameCommits.some(
+          (event) =>
+            event.data &&
+            event.data[3] &&
+            sameAddress(event.data[3], player1)
+        )
+        const p2Committed = gameCommits.some(
+          (event) =>
+            event.data &&
+            event.data[3] &&
+            sameAddress(event.data[3], player2)
+        )
+        const isMyCommit = gameCommits.some(
+          (event) =>
+            event.data &&
+            event.data[3] &&
+            sameAddress(event.data[3], address)
+        )
 
-                // Check commitments
-                // We need to know if BOTH committed to be in Playing phase.
-                // Or if any attacks exist, we MUST be in Playing phase.
+        if (p1Committed && p2Committed) {
+          phase = "Playing"
+        }
 
-                // Fetch Commit events
-                const commitEvents = await provider.current.getEvents({
-                    address: WORLD_ADDRESS,
-                    keys: [[EVENT_EMITTED_SELECTOR], [BOARD_COMMITTED_EVENT_HASH]],
-                    from_block: { block_number: SEPOLIA_CONFIG.DEPLOYED_BLOCK },
-                    to_block: 'latest',
-                    chunk_size: 1000,
-                });
+        let currentTurn = player1
+        let p1Hits = 0
+        let p2Hits = 0
 
-                if (cancelled) return;
+        const gameReveals = revealEvents.filter(
+          (event) => event.data && Number(event.data[1]) === gameId
+        )
+        if (gameReveals.length > 0) {
+          phase = "Playing"
+        }
 
-                const gameCommits = commitEvents.events.filter(e => e.data && Number(e.data[1]) === gameId);
-                // Check unique players who committed
-                // const committedPlayers = new Set(gameCommits.map(e => e.data[2])); // data[2] is player address?
-                // board_committed event layout: [count, game_id, field_count, player, root]
-                // Wait, need to check layout. key=game_id, data=[player, root]
-                // Do events use keys for game_id? Cairo code: #[key] pub game_id: u32
-                // So keys[2] (if using standard layout) or data, wait.
-                // Dojo custom events: keys[0]=selector, keys[1]=event_hash, keys[2]=emitter
-                // data = [key_len, key1..keyN, data_len, data1..dataN]
-                // board_committed: game_id is key.
-                // data: [1, game_id, 2, player, root]
+        for (const reveal of gameReveals) {
+          if (!reveal.data || reveal.data.length < 6) continue
+          const isHit = Number(reveal.data[5]) === 1
 
-                const p1Committed = gameCommits.some(e => BigInt(e.data[3]) === BigInt(player1));
-                const p2Committed = gameCommits.some(e => BigInt(e.data[3]) === BigInt(player2));
-                const isMyCommit = gameCommits.some(e => BigInt(e.data[3]) === BigInt(address));
+          if (isHit) {
+            if (sameAddress(currentTurn, player1)) p1Hits += 1
+            else p2Hits += 1
 
-                if (p1Committed && p2Committed) {
-                    phase = "Playing";
-                }
-
-                // 3. Calculate Turn & Game Over
-                let currentTurn = player1;
-                let p1Hits = 0;
-                let p2Hits = 0;
-
-                // Fetch reveals
-                const revealEvents = await provider.current.getEvents({
-                     address: WORLD_ADDRESS,
-                     keys: [[EVENT_EMITTED_SELECTOR], [ATTACK_REVEALED_EVENT_HASH]],
-                     from_block: { block_number: SEPOLIA_CONFIG.DEPLOYED_BLOCK },
-                     to_block: 'latest',
-                     chunk_size: 1000,
-                });
-
-                 if (cancelled) return;
-
-                const gameReveals = revealEvents.events.filter(e => e.data && Number(e.data[1]) === gameId);
-                // If any reveals exist, we are definitely playing (or finished)
-                if (gameReveals.length > 0) phase = "Playing";
-
-                for (const rev of gameReveals) {
-                    // data: [count, game_id, field_count, x, y, is_hit]
-                    // Standard layout checks:
-                    // attack_revealed: game_id key. x,y,is_hit data?
-                    // #[key] game_id
-                    // other fields data
-                    // data: [1, game_id, 3, x, y, is_hit]
-
-                    if (rev.data.length < 6) continue;
-
-                    const isHit = Number(rev.data[5]) === 1;
-
-                    if (isHit) {
-                         if (currentTurn === player1) p1Hits++;
-                         else p2Hits++;
-
-                         if (p1Hits >= 10) { winner = player1; isActive = false; phase = "Finished"; }
-                         if (p2Hits >= 10) { winner = player2; isActive = false; phase = "Finished"; }
-                    } else {
-                        currentTurn = (currentTurn === player1) ? player2 : player1;
-                    }
-                }
-
-                const isMyTurn = BigInt(currentTurn) === BigInt(address);
-
-                setGameState({
-                    gameId,
-                    player1,
-                    player2,
-                    isPlayer1: isP1,
-                    isPlayer2: isP2,
-                    isMyTurn,
-                    isActive,
-                    winner,
-                    phase,
-                    isMyCommit
-                });
-
-            } catch (error) {
-                console.error("Failed to sync game state:", error);
-            } finally {
-                setIsLoading(false);
+            if (p1Hits >= 10) {
+              winner = player1
+              isActive = false
+              phase = "Finished"
+            } else if (p2Hits >= 10) {
+              winner = player2
+              isActive = false
+              phase = "Finished"
+            } else {
+              currentTurn =
+                currentTurn === player1 ? player2 : player1
             }
-        };
+          } else {
+            currentTurn = currentTurn === player1 ? player2 : player1
+          }
+        }
 
-        fetchState();
-        const interval = setInterval(fetchState, 5000); // Polling for turn updates
+        const nextState: GameState = {
+          gameId,
+          player1,
+          player2,
+          isPlayer1,
+          isPlayer2,
+          isMyTurn: sameAddress(currentTurn, address),
+          isActive,
+          winner,
+          phase,
+          isMyCommit,
+        }
 
-        return () => {
-            cancelled = true;
-            clearInterval(interval);
-        };
-    }, [gameId, address]);
+        setGameState(nextState)
+      } catch (error) {
+        console.error("Failed to sync game state:", error)
+      } finally {
+        hasLoaded.current = true
+        setIsLoading(false)
+      }
+    }
 
-    return { gameState, isLoading };
-};
+    fetchState()
+    const interval = setInterval(fetchState, 5000)
+
+    return () => {
+      cancelled = true
+      clearInterval(interval)
+    }
+  }, [gameId, address])
+
+  return { gameState, isLoading }
+}
 
 export interface GameSummary {
-    gameId: number;
-    opponent: string;
-    isTurn: boolean; // computed locally if possible
+  gameId: number
+  opponent: string
+  isTurn: boolean
 }
 
 export const useMyGames = () => {
-    const { address } = useAccount();
-    const [games, setGames] = useState<GameSummary[]>([]);
-    const [isLoading, setIsLoading] = useState(false);
-    const provider = useRef(new RpcProvider({ nodeUrl: SEPOLIA_CONFIG.RPC_URL }));
+  const { address } = useAccount()
+  const [games, setGames] = useState<GameSummary[]>([])
+  const [isLoading, setIsLoading] = useState(false)
+  const provider = useRef(new RpcProvider({ nodeUrl: SEPOLIA_CONFIG.RPC_URL }))
 
-    useEffect(() => {
-        if (!address) return;
+  const fetchGames = useCallback(async () => {
+    if (!address) return
 
-        const fetchGames = async () => {
-            setIsLoading(true);
-            try {
-                // Fetch all games spawned since deployment
-                const events = await provider.current.getEvents({
-                    address: WORLD_ADDRESS,
-                    keys: [[EVENT_EMITTED_SELECTOR], [GAME_SPAWNED_EVENT_HASH]],
-                    from_block: { block_number: SEPOLIA_CONFIG.DEPLOYED_BLOCK },
-                    to_block: 'latest',
-                    chunk_size: 1000,
-                });
+    setIsLoading(true)
 
-                const myGames: GameSummary[] = [];
+    try {
+      const events = await fetchAllEvents(provider.current, GAME_SPAWNED_EVENT_HASH)
+      const myGames: GameSummary[] = []
 
-                for (const event of events.events) {
-                    if (!event.data || event.data.length < 5) continue;
+      for (const event of events) {
+        if (!event.data || event.data.length < 5) continue
 
-                    const gameId = Number(event.data[1]);
-                    const p1 = event.data[3];
-                    const p2 = event.data[4];
+        const spawnedGameId = Number(event.data[1])
+        const p1 = event.data[3]
+        const p2 = event.data[4]
+        const isP1 = sameAddress(p1, address)
+        const isP2 = sameAddress(p2, address)
 
-                    // Check if I am a player
-                    const isP1 = BigInt(p1) === BigInt(address);
-                    const isP2 = BigInt(p2) === BigInt(address);
+        if (isP1 || isP2) {
+          myGames.push({
+            gameId: spawnedGameId,
+            opponent: isP1 ? p2 : p1,
+            isTurn: false,
+          })
+        }
+      }
 
-                    if (isP1 || isP2) {
-                        myGames.push({
-                            gameId,
-                            opponent: isP1 ? p2 : p1,
-                            isTurn: false // efficient computation of turn for list view is hard without indexing
-                        });
-                    }
-                }
+      setGames(myGames.sort((a, b) => b.gameId - a.gameId))
+    } catch (error) {
+      console.error("Failed to fetch my games", error)
+    } finally {
+      setIsLoading(false)
+    }
+  }, [address])
 
-                // Sort by ID descending (newest first)
-                setGames(myGames.sort((a, b) => b.gameId - a.gameId));
+  useEffect(() => {
+    if (!address) {
+      setGames([])
+      setIsLoading(false)
+      return
+    }
 
-            } catch (err) {
-                console.error("Failed to fetch my games", err);
-            } finally {
-                setIsLoading(false);
-            }
-        };
+    fetchGames()
+    const interval = setInterval(fetchGames, 10000)
+    return () => clearInterval(interval)
+  }, [address, fetchGames])
 
-        fetchGames();
-    }, [address]);
-
-    return { games, isLoading };
-};
+  return { games, isLoading, refresh: fetchGames }
+}

@@ -1,8 +1,6 @@
 "use client"
 
-import React from "react"
-
-import { useState, useCallback, useRef, useEffect } from "react"
+import { useState, useCallback, useRef, useEffect, useMemo } from "react"
 import { useAccount } from "@starknet-react/core"
 import { useGameActions } from "@/src/hooks/useGameActions"
 import { useGameState } from "@/hooks/useGameState"
@@ -22,34 +20,17 @@ const LS_BOARD = "dark-waters-board"
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
+function getBoardKey(gameId: number, address: string): string {
+  return `${LS_BOARD}:${gameId}:${address.toLowerCase()}`
+}
+
 function createEmptyGrid(): CombatCell[][] {
   return Array.from({ length: GRID_SIZE }, () =>
     Array.from({ length: GRID_SIZE }, () => ({ state: "empty" as const }))
   )
 }
 
-function createPlayerFleetGrid(): CombatCell[][] {
-  // Try to load the actual board from localStorage
-  if (typeof window !== "undefined") {
-    const boardJson = localStorage.getItem(LS_BOARD)
-    if (boardJson) {
-      try {
-        const board: Ship[] = JSON.parse(boardJson)
-        const grid = createEmptyGrid()
-        for (const cell of board) {
-          if (cell.is_ship && cell.x >= 0 && cell.x < GRID_SIZE && cell.y >= 0 && cell.y < GRID_SIZE) {
-            // Grid uses [row][col] where row = y, col = x
-            grid[cell.y][cell.x] = { state: "ship", shipId: "fleet" }
-          }
-        }
-        return grid
-      } catch {
-        // fallback to default
-      }
-    }
-  }
-
-  // Fallback: pre-placed fleet for demo
+function createFallbackFleetGrid(): CombatCell[][] {
   const grid = createEmptyGrid()
   const placements = [
     { shipId: "carrier", cells: [[0,1],[0,2],[0,3],[0,4],[0,5]] },
@@ -64,6 +45,33 @@ function createPlayerFleetGrid(): CombatCell[][] {
     }
   }
   return grid
+}
+
+function createFleetGridFromBoard(board: Ship[]): CombatCell[][] {
+  const grid = createEmptyGrid()
+  for (const cell of board) {
+    if (!cell.is_ship) continue
+    if (cell.x < 0 || cell.x >= GRID_SIZE || cell.y < 0 || cell.y >= GRID_SIZE) continue
+    grid[cell.y][cell.x] = { state: "ship", shipId: "fleet" }
+  }
+  return grid
+}
+
+function getPlayerFleetGrid(gameId: number | null, address?: string): CombatCell[][] {
+  if (typeof window === "undefined") return createFallbackFleetGrid()
+  if (!gameId || !address) return createFallbackFleetGrid()
+
+  const boardJson =
+    localStorage.getItem(getBoardKey(gameId, address)) ??
+    localStorage.getItem(LS_BOARD)
+  if (!boardJson) return createFallbackFleetGrid()
+
+  try {
+    const board: Ship[] = JSON.parse(boardJson)
+    return createFleetGridFromBoard(board)
+  } catch {
+    return createFallbackFleetGrid()
+  }
 }
 
 const INITIAL_PLAYER_SHIPS: ShipHealth[] = [
@@ -86,29 +94,46 @@ function getCoordinateLabel(row: number, col: number): string {
   return `${String.fromCharCode(65 + row)}${col + 1}`
 }
 
+function countHitCells(grid: CombatCell[][]): number {
+  let hits = 0
+  for (const row of grid) {
+    for (const cell of row) {
+      if (cell.state === "hit") hits += 1
+    }
+  }
+  return hits
+}
+
+function buildFleetHealth(template: ShipHealth[], hitCount: number): ShipHealth[] {
+  let remainingHits = hitCount
+  return template.map((ship) => {
+    const hits = Math.min(ship.size, Math.max(0, remainingHits))
+    remainingHits -= hits
+    return {
+      ...ship,
+      hits,
+      sunk: hits >= ship.size,
+    }
+  })
+}
+
 export function useCombat() {
   const { address } = useAccount()
-  const { attack, isLoading: txLoading } = useGameActions()
+  const { attack } = useGameActions()
   const { toast } = useToast()
 
   const [isPlayerTurn, setIsPlayerTurn] = useState(true)
-  const [playerGrid, setPlayerGrid] = useState<CombatCell[][]>(createPlayerFleetGrid)
+  const [playerGrid, setPlayerGrid] = useState<CombatCell[][]>(() =>
+    getPlayerFleetGrid(null, address)
+  )
   const [targetGrid, setTargetGrid] = useState<CombatCell[][]>(createEmptyGrid)
   const [battleLog, setBattleLog] = useState<BattleLogEntry[]>([])
-  const [playerShips, setPlayerShips] = useState<ShipHealth[]>(
-    INITIAL_PLAYER_SHIPS.map((s) => ({ ...s }))
-  )
-  const [enemyShips, setEnemyShips] = useState<ShipHealth[]>(
-    INITIAL_ENEMY_SHIPS.map((s) => ({ ...s }))
-  )
   const [pendingCell, setPendingCell] = useState<{ row: number; col: number } | null>(null)
   const [gameOver, setGameOver] = useState<"win" | "lose" | null>(null)
-  const [txModal, setTxModal] = useState<{
-    open: boolean
-    coordinate: string
-    onResolve: (() => void) | null
-  }>({ open: false, coordinate: "", onResolve: null })
+  const [isAwaitingTurnHandoff, setIsAwaitingTurnHandoff] = useState(false)
   const logIdRef = useRef(0)
+  const processedPlayerRevealRef = useRef<Set<string>>(new Set())
+  const processedEnemyRevealRef = useRef<Set<string>>(new Set())
 
   // Read gameId from localStorage
   const [gameId, setGameId] = useState<number | null>(null)
@@ -119,6 +144,29 @@ export function useCombat() {
 
   // ── Game State Sync ────────────────────────────────────────────────
   const { gameState } = useGameState(gameId)
+
+  const canFire = isPlayerTurn && !isAwaitingTurnHandoff
+  const playerShips = useMemo(
+    () => buildFleetHealth(INITIAL_PLAYER_SHIPS, countHitCells(playerGrid)),
+    [playerGrid]
+  )
+  const enemyShips = useMemo(
+    () => buildFleetHealth(INITIAL_ENEMY_SHIPS, countHitCells(targetGrid)),
+    [targetGrid]
+  )
+
+  useEffect(() => {
+    setPlayerGrid(getPlayerFleetGrid(gameId, address))
+    setTargetGrid(createEmptyGrid())
+    setBattleLog([])
+    setPendingCell(null)
+    setGameOver(null)
+    setIsPlayerTurn(true)
+    setIsAwaitingTurnHandoff(false)
+    processedPlayerRevealRef.current.clear()
+    processedEnemyRevealRef.current.clear()
+    logIdRef.current = 0
+  }, [gameId, address])
 
   // Sync turn state with blockchain events
   useEffect(() => {
@@ -133,9 +181,12 @@ export function useCombat() {
         // We only update if the turn has CHANGED to avoid jitter/loops if we have local optimistic updates
         if (gameState.isActive) {
             setIsPlayerTurn(gameState.isMyTurn);
+            if (isAwaitingTurnHandoff && !gameState.isMyTurn) {
+              setIsAwaitingTurnHandoff(false);
+            }
         }
     }
-  }, [gameState, address]);
+  }, [gameState, address, isAwaitingTurnHandoff]);
 
   const addLogEntry = useCallback(
     (type: "player" | "enemy", coordinate: string, result: "hit" | "miss" | "sunk") => {
@@ -169,7 +220,7 @@ export function useCombat() {
 
   const fireAtTarget = useCallback(
     async (row: number, col: number) => {
-      if (!isPlayerTurn || gameOver) return
+      if (!canFire || gameOver) return
       const cell = targetGrid[row][col]
       if (cell.state !== "empty") return
 
@@ -190,16 +241,8 @@ export function useCombat() {
 
       const coord = getCoordinateLabel(row, col)
 
-      // Show transaction modal
-      setTxModal({
-        open: true,
-        coordinate: coord,
-        onResolve: null, // Will be set after tx completes
-      })
-
       try {
-        // Submit attack on-chain
-        // Note: in the grid, row = y, col = x
+        // Submit attack on-chain (row = y, col = x)
         const result = await attack(gameId, col, row)
 
         if (result) {
@@ -208,16 +251,10 @@ export function useCombat() {
             description: `Strike at ${coord} confirmed on-chain. Awaiting reveal...`,
           })
 
-          addLogEntry("player", coord, "miss") // We won't know hit/miss until reveal
-
-          // Close modal on success
-          setTxModal({ open: false, coordinate: "", onResolve: null })
-
-          // After attacking, it's the opponent's turn to reveal, then they attack
+          // After attacking, it's the opponent's turn to reveal
           setIsPlayerTurn(false)
-
-          // The attack_revealed event listener (useAttackListener) will
-          // update the cell state when the opponent reveals
+          setIsAwaitingTurnHandoff(true)
+          setPendingCell(null)
         }
       } catch (err) {
         console.error("Attack failed:", err)
@@ -227,8 +264,10 @@ export function useCombat() {
         reverted[row][col] = { state: "empty" }
         setTargetGrid(reverted)
         setPendingCell(null)
-
-        setTxModal({ open: false, coordinate: "", onResolve: null })
+        setIsAwaitingTurnHandoff(false)
+        if (gameState) {
+          setIsPlayerTurn(gameState.isMyTurn)
+        }
 
         toast({
           title: "Attack Failed",
@@ -237,13 +276,16 @@ export function useCombat() {
         })
       }
     },
-    [isPlayerTurn, gameOver, targetGrid, gameId, attack, toast, addLogEntry]
+    [canFire, gameOver, targetGrid, gameId, attack, toast, gameState]
   )
 
   // ── Update grid from revealed events ───────────────────────────────
 
   const applyRevealedAttack = useCallback(
-    (x: number, y: number, isHit: boolean) => {
+    (revealId: string, x: number, y: number, isHit: boolean) => {
+      if (processedPlayerRevealRef.current.has(revealId)) return
+      processedPlayerRevealRef.current.add(revealId)
+
       // Update the target grid (attacks I made)
       setTargetGrid((prev) => {
         const updated = prev.map((r) => r.map((c) => ({ ...c })))
@@ -256,8 +298,7 @@ export function useCombat() {
       const coord = getCoordinateLabel(y, x)
       addLogEntry("player", coord, isHit ? "hit" : "miss")
 
-      // After reveal, it may become our turn again
-      setIsPlayerTurn(true)
+      // Turn is now managed by useGameState sync (not set here)
     },
     [addLogEntry]
   )
@@ -265,11 +306,17 @@ export function useCombat() {
   // ── Apply incoming attack on our board ─────────────────────────────
 
   const applyIncomingAttack = useCallback(
-    (x: number, y: number, isHit: boolean) => {
+    (revealId: string, x: number, y: number, isHit: boolean) => {
+      if (processedEnemyRevealRef.current.has(revealId)) return
+      processedEnemyRevealRef.current.add(revealId)
+
       setPlayerGrid((prev) => {
         const updated = prev.map((r) => r.map((c) => ({ ...c })))
         if (updated[y] && updated[y][x]) {
-          updated[y][x] = { state: isHit ? "hit" : "miss" }
+          updated[y][x] = {
+            state: isHit ? "hit" : "miss",
+            shipId: updated[y][x].shipId,
+          }
         }
         return updated
       })
@@ -280,25 +327,8 @@ export function useCombat() {
     [addLogEntry]
   )
 
-  // Close the transaction modal (cancel)
-  const closeTxModal = useCallback(() => {
-    if (pendingCell) {
-      const reverted = targetGrid.map((r) => r.map((c) => ({ ...c })))
-      reverted[pendingCell.row][pendingCell.col] = { state: "empty" }
-      setTargetGrid(reverted)
-      setPendingCell(null)
-    }
-    setTxModal({ open: false, coordinate: "", onResolve: null })
-  }, [pendingCell, targetGrid])
-
-  // Complete the transaction modal (success path)
-  const completeTxModal = useCallback(() => {
-    txModal.onResolve?.()
-    setTxModal({ open: false, coordinate: "", onResolve: null })
-  }, [txModal])
-
   return {
-    isPlayerTurn,
+    isPlayerTurn: canFire,
     playerGrid,
     targetGrid,
     battleLog,
@@ -307,9 +337,6 @@ export function useCombat() {
     pendingCell,
     gameOver,
     fireAtTarget,
-    txModal,
-    closeTxModal,
-    completeTxModal,
     applyRevealedAttack,
     applyIncomingAttack,
     gameId,
