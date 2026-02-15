@@ -9,16 +9,16 @@ The goal of this project is to make Battleship-style gameplay verifiable on-chai
 
 Dark Waters is designed to solve four core problems in competitive turn-based games:
 
-1. Hidden information without trust
+1. Hidden information without trust:
 Players should not reveal ship placements before the match, but the game must still verify every reveal.
 
-2. Turn enforcement at contract level
+2. Turn enforcement at contract level:
 No client can cheat turn order because `attack` and `reveal` rules are enforced in the contract.
 
-3. Verifiable combat outcomes
+3. Verifiable combat outcomes:
 Every hit or miss is proven against a committed board root.
 
-4. Practical UX for on-chain play
+4. Practical UX for on-chain play:
 The frontend automates event syncing and reveal flow so players can play naturally.
 
 ## How Dark Waters Works
@@ -302,6 +302,8 @@ File:
 8) Contract swaps turn to defender (current implementation for hit and miss)
 9) If defender hits_taken >= 10, contract sets winner and state = Finished
 ```
+## Live Link
+https://dark-waters-m2fn.vercel.app/
 
 ## Summary
 
