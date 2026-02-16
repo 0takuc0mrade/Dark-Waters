@@ -1,6 +1,6 @@
 "use client"
 
-import React, { createContext, useContext, useMemo } from "react"
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef } from "react"
 import {
   StarknetConfig,
   jsonRpcProvider,
@@ -42,6 +42,8 @@ const controllerConnector = new ControllerConnector({
   ],
 })
 
+const LS_CONNECTOR_PREF = "dark-waters-connector-preference"
+
 // ── Wallet context ──────────────────────────────────────────────────
 
 interface WalletContextType {
@@ -68,15 +70,42 @@ function InnerWallet({ children }: { children: React.ReactNode }) {
   const { connect, connectors } = useConnect()
   const { disconnect } = useDisconnect()
   const { address, status } = useAccount()
+  const triedAutoConnectRef = useRef(false)
 
   const controller = useMemo(
     () => connectors.find((c) => c.id === "controller"),
     [connectors],
   )
 
-  const handleConnect = () => {
-    if (controller) connect({ connector: controller })
-  }
+  const handleConnect = useCallback(() => {
+    if (!controller) return
+    localStorage.setItem(LS_CONNECTOR_PREF, "controller")
+    connect({ connector: controller })
+  }, [connect, controller])
+
+  const handleDisconnect = useCallback(() => {
+    localStorage.removeItem(LS_CONNECTOR_PREF)
+    disconnect()
+  }, [disconnect])
+
+  useEffect(() => {
+    if (!controller) return
+    if (status !== "disconnected") return
+    if (triedAutoConnectRef.current) return
+
+    const preferred = localStorage.getItem(LS_CONNECTOR_PREF)
+    if (preferred !== "controller") return
+
+    triedAutoConnectRef.current = true
+    connect({ connector: controller })
+  }, [connect, controller, status])
+
+  useEffect(() => {
+    if (status === "connected") {
+      localStorage.setItem(LS_CONNECTOR_PREF, "controller")
+      triedAutoConnectRef.current = true
+    }
+  }, [status])
 
   return (
     <WalletContext.Provider
@@ -84,7 +113,7 @@ function InnerWallet({ children }: { children: React.ReactNode }) {
         isConnected: status === "connected",
         address,
         connect: handleConnect,
-        disconnect,
+        disconnect: handleDisconnect,
       }}
     >
       {children}
