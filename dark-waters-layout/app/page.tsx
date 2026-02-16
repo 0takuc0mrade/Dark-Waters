@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Badge } from "@/components/ui/badge"
-import { Sword, Anchor, LogOut, Copy, RefreshCw, Loader2 } from "lucide-react"
+import { Sword, Anchor, LogOut, Copy, RefreshCw, Loader2, CheckCircle2 } from "lucide-react"
 import { useWallet } from "@/components/wallet-provider"
 import { useGameActions } from "@/src/hooks/useGameActions"
 import { useMyGames, useGameState } from "@/hooks/useGameState"
@@ -17,6 +17,7 @@ import { CombatDashboard } from "@/components/combat/combat-dashboard"
 import { ShipPlacement } from "@/components/placement/ship-placement"
 
 const LS_GAME_ID = "dark-waters-gameId"
+const LS_ONBOARDING_FUNDED = "dark-waters-onboarding-funded"
 
 export default function Page() {
   const { isConnected, address } = useWallet()
@@ -130,6 +131,11 @@ function LobbyInterface({ onJoin }: { onJoin: (id: number) => void }) {
     const { toast } = useToast()
     const [opponent, setOpponent] = useState("")
     const [activeTab, setActiveTab] = useState("host")
+    const [fundedChecklist, setFundedChecklist] = useState(false)
+
+    useEffect(() => {
+        setFundedChecklist(localStorage.getItem(LS_ONBOARDING_FUNDED) === "true")
+    }, [])
 
     const handleSpawn = async () => {
         if (!opponent) return;
@@ -185,6 +191,28 @@ function LobbyInterface({ onJoin }: { onJoin: (id: number) => void }) {
 
                 <TabsContent value="host" className="p-6 pt-4 space-y-4">
                     <div className="space-y-4 text-center">
+                        <div className="rounded-lg border border-primary/30 bg-primary/5 p-3 text-left">
+                            <p className="text-xs font-semibold text-foreground">First-time Checklist</p>
+                            <ul className="mt-2 space-y-1 text-xs text-muted-foreground">
+                                <li>1. Copy your Cartridge address below.</li>
+                                <li>2. Fund it with Sepolia STRK from Ready or Braavos.</li>
+                                <li>3. Confirm funding before spawning your first game.</li>
+                            </ul>
+                            <Button
+                              variant={fundedChecklist ? "default" : "outline"}
+                              size="sm"
+                              className="mt-3 h-7 text-xs"
+                              onClick={() => {
+                                const next = !fundedChecklist
+                                setFundedChecklist(next)
+                                localStorage.setItem(LS_ONBOARDING_FUNDED, next ? "true" : "false")
+                              }}
+                            >
+                              <CheckCircle2 className="mr-1.5 h-3.5 w-3.5" />
+                              {fundedChecklist ? "Funding Verified" : "Mark Funding Complete"}
+                            </Button>
+                        </div>
+
                         <div className="p-4 bg-muted/30 rounded-lg border border-border/50">
                             <p className="text-xs font-medium text-muted-foreground mb-2">YOUR ADMIRAL ADDRESS</p>
                             <button onClick={copyAddress} className="flex items-center justify-center gap-2 text-sm font-mono w-full hover:text-primary transition-colors">
@@ -204,10 +232,15 @@ function LobbyInterface({ onJoin }: { onJoin: (id: number) => void }) {
                             <p className="text-xs text-muted-foreground">Share your address with a friend, then paste theirs here.</p>
                         </div>
 
-                        <Button className="w-full" onClick={handleSpawn} disabled={!opponent || isLoading}>
+                        <Button className="w-full" onClick={handleSpawn} disabled={!opponent || isLoading || !fundedChecklist}>
                             {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Sword className="mr-2 h-4 w-4" />}
                             Spawn Game
                         </Button>
+                        {!fundedChecklist && (
+                          <p className="text-xs text-amber-300">
+                            Complete funding checklist to enable spawning.
+                          </p>
+                        )}
                     </div>
                 </TabsContent>
 

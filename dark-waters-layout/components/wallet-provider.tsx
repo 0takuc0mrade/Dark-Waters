@@ -24,7 +24,8 @@ const policies = {
       methods: [
         { name: "Spawn Game", entrypoint: "spawn_game" },
         { name: "Commit Board", entrypoint: "commit_board" },
-        { name: "Attack", entrypoint: "attack" },
+        { name: "Commit Attack", entrypoint: "commit_attack" },
+        { name: "Reveal Attack", entrypoint: "reveal_attack" },
         { name: "Reveal", entrypoint: "reveal" },
         { name: "Claim Timeout Win", entrypoint: "claim_timeout_win" },
       ],

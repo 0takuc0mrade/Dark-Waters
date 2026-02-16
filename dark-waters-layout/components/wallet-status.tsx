@@ -16,6 +16,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import { useToast } from "@/hooks/use-toast"
 
 function truncateAddress(address: string) {
   return `${address.slice(0, 6)}...${address.slice(-4)}`
@@ -23,6 +24,7 @@ function truncateAddress(address: string) {
 
 export function WalletStatus() {
   const { isConnected, address, connect, disconnect } = useWallet()
+  const { toast } = useToast()
 
   if (!isConnected) {
     return (
@@ -66,11 +68,33 @@ export function WalletStatus() {
           </p>
         </div>
         <DropdownMenuSeparator />
-        <DropdownMenuItem className="gap-2 text-xs">
+        <DropdownMenuItem
+          className="gap-2 text-xs"
+          onClick={async () => {
+            if (!address) return
+            try {
+              await navigator.clipboard.writeText(address)
+              toast({ title: "Address Copied", description: "Wallet address copied to clipboard." })
+            } catch {
+              toast({
+                title: "Copy Failed",
+                description: "Clipboard permission denied.",
+                variant: "destructive",
+              })
+            }
+          }}
+        >
           <Copy className="h-3.5 w-3.5" />
           Copy Address
         </DropdownMenuItem>
-        <DropdownMenuItem className="gap-2 text-xs">
+        <DropdownMenuItem
+          className="gap-2 text-xs"
+          onClick={() => {
+            if (!address) return
+            const explorerUrl = `https://sepolia.voyager.online/contract/${address}`
+            window.open(explorerUrl, "_blank", "noopener,noreferrer")
+          }}
+        >
           <ExternalLink className="h-3.5 w-3.5" />
           View on Explorer
         </DropdownMenuItem>

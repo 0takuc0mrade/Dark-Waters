@@ -1,12 +1,15 @@
 "use client"
 
-import { useEffect } from "react"
+import { useEffect, useState } from "react"
 import { useCombat } from "@/hooks/use-combat"
 import { useAttackListener } from "@/hooks/use-attack-listener"
 import { TurnIndicator } from "./turn-indicator"
 import { CombatGrid } from "./combat-grid"
 import { BattleLog } from "./battle-log"
 import { FleetStatus } from "./fleet-status"
+import { ERROR_CODES } from "@/src/utils/logger"
+import { Button } from "@/components/ui/button"
+import { Textarea } from "@/components/ui/textarea"
 
 export function CombatDashboard() {
   const {
@@ -22,10 +25,18 @@ export function CombatDashboard() {
     applyRevealedAttack,
     applyIncomingAttack,
   } = useCombat()
+  const [recoveryPackage, setRecoveryPackage] = useState("")
 
   // ── Event listener for auto-reveal + grid updates ──────────────────
 
-  const { myRevealedAttacks, enemyRevealedAttacks, isRevealing } = useAttackListener({
+  const {
+    myRevealedAttacks,
+    enemyRevealedAttacks,
+    isRevealing,
+    lastError,
+    syncHealth,
+    restoreSecrets,
+  } = useAttackListener({
     enabled: gameId !== null,
     gameId,
     pollInterval: 4000,
@@ -58,11 +69,42 @@ export function CombatDashboard() {
         </div>
       )}
 
+      {lastError === ERROR_CODES.SECRET_LOCKED && (
+        <div className="mx-auto mt-3 max-w-3xl rounded-lg border border-amber-500/50 bg-amber-500/10 p-3">
+          <p className="text-xs font-semibold text-amber-300">Secrets Locked</p>
+          <p className="mt-1 text-xs text-amber-100/80">
+            Paste your recovery package to restore encrypted board secrets and resume auto-reveal.
+          </p>
+          <Textarea
+            value={recoveryPackage}
+            onChange={(event) => setRecoveryPackage(event.target.value)}
+            placeholder='{"version":1,"gameId":...}'
+            className="mt-2 min-h-24 font-mono text-[11px]"
+          />
+          <div className="mt-2 flex justify-end">
+            <Button
+              size="sm"
+              onClick={() => {
+                if (!recoveryPackage.trim()) return
+                const restored = restoreSecrets(recoveryPackage)
+                if (restored) setRecoveryPackage("")
+              }}
+            >
+              Restore Secrets
+            </Button>
+          </div>
+        </div>
+      )}
+
       {/* Game ID badge */}
       {gameId && (
-        <div className="mt-2 flex justify-center">
+        <div className="mt-2 flex flex-col items-center gap-1">
           <span className="rounded-full border border-border bg-secondary/50 px-3 py-0.5 text-[10px] font-medium text-muted-foreground">
             Game #{gameId}
+          </span>
+          <span className="text-[10px] text-muted-foreground">
+            Sync block {syncHealth.cursorBlock} • processed {syncHealth.processedEvents} • errors{" "}
+            {syncHealth.pollErrors}
           </span>
         </div>
       )}

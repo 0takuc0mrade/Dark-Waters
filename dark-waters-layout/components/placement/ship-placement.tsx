@@ -7,23 +7,13 @@ import { useGameActions } from "@/src/hooks/useGameActions"
 import { useToast } from "@/hooks/use-toast"
 import { useWallet } from "@/components/wallet-provider"
 import { BoardMerkle, type Ship as MerkleShip } from "@/src/utils/merkle"
+import { createNewMasterSecret, storeBoardSecrets } from "@/src/utils/secret-storage"
 import { PlacementGrid } from "./placement-grid"
 import { ShipControls } from "./ship-controls"
 
 // ── localStorage keys ────────────────────────────────────────────────
 
 const LS_GAME_ID = "dark-waters-gameId"
-const LS_BOARD = "dark-waters-board"
-const LS_SALT = "dark-waters-salt"
-
-function getBoardKey(gameId: number, address: string): string {
-  return `${LS_BOARD}:${gameId}:${address.toLowerCase()}`
-}
-
-function getSaltKey(gameId: number, address: string): string {
-  return `${LS_SALT}:${gameId}:${address.toLowerCase()}`
-}
-
 export function ShipPlacement() {
   const router = useRouter()
 
@@ -117,27 +107,22 @@ export function ShipPlacement() {
       }
     }
 
-    // Generate a random salt
-    const saltBytes = new Uint8Array(16)
-    crypto.getRandomValues(saltBytes)
-    const saltHex =
-      "0x" +
-      Array.from(saltBytes)
-        .map((b) => b.toString(16).padStart(2, "0"))
-        .join("")
+    if (!address) {
+      toast({
+        title: "Wallet Required",
+        description: "Connect your wallet before committing your board.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    // Generate one master secret and derive per-cell nonces from it.
+    const masterSecret = createNewMasterSecret()
 
     // Build Merkle tree
-    const merkle = new BoardMerkle(board, saltHex)
+    const merkle = new BoardMerkle(board, masterSecret)
     const root = merkle.getRoot()
     const rootHex = "0x" + root.toString(16)
-
-    // Save to localStorage BEFORE submitting tx (so auto-reveal works)
-    localStorage.setItem(LS_BOARD, JSON.stringify(board))
-    localStorage.setItem(LS_SALT, saltHex)
-    if (address) {
-      localStorage.setItem(getBoardKey(gameId, address), JSON.stringify(board))
-      localStorage.setItem(getSaltKey(gameId, address), saltHex)
-    }
 
     setIsCommitting(true)
     toast({
@@ -146,11 +131,28 @@ export function ShipPlacement() {
     })
 
     try {
+      const recoveryPackage = await storeBoardSecrets(gameId, address, board, masterSecret)
+
       const result = await commitBoard(gameId, rootHex)
       if (result) {
+        const serialized = JSON.stringify(recoveryPackage)
+        try {
+          await navigator.clipboard.writeText(serialized)
+          toast({
+            title: "Recovery Package Copied",
+            description: "Backup package copied. Keep it safe to restore on new sessions/devices.",
+          })
+        } catch {
+          toast({
+            title: "Save Recovery Package",
+            description:
+              "Clipboard access failed. Open devtools and copy this package from localStorage if needed.",
+          })
+        }
+
         toast({
           title: "Board Committed!",
-          description: "Fleet positions secured on-chain. Preparing for battle…",
+          description: "Fleet commitment stored and encrypted secrets saved. Preparing for battle…",
         })
 
         // Navigate to home to let the main logic handle phase routing

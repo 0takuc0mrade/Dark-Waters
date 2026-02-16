@@ -5,23 +5,29 @@ import { useAccount } from "@starknet-react/core"
 import { useGameActions } from "@/src/hooks/useGameActions"
 import { useGameState } from "@/hooks/useGameState"
 import { useToast } from "@/hooks/use-toast"
-import type {
-  CombatCell,
-  BattleLogEntry,
-  ShipHealth,
-} from "@/components/combat/types"
+import type { CombatCell, BattleLogEntry, ShipHealth } from "@/components/combat/types"
 import { GRID_SIZE } from "@/components/combat/types"
-import type { Ship } from "@/src/utils/merkle"
-
-// ── localStorage keys ────────────────────────────────────────────────
+import {
+  computeAttackCommitmentHash,
+  randomFeltHex,
+  type Ship,
+} from "@/src/utils/merkle"
+import { loadBoardSecrets } from "@/src/utils/secret-storage"
+import { ERROR_CODES, logEvent } from "@/src/utils/logger"
 
 const LS_GAME_ID = "dark-waters-gameId"
-const LS_BOARD = "dark-waters-board"
 
-// ── Helpers ──────────────────────────────────────────────────────────
+interface PersistedCombatState {
+  playerGrid: CombatCell[][]
+  targetGrid: CombatCell[][]
+  battleLog: BattleLogEntry[]
+  playerRevealIds: string[]
+  enemyRevealIds: string[]
+  logCounter: number
+}
 
-function getBoardKey(gameId: number, address: string): string {
-  return `${LS_BOARD}:${gameId}:${address.toLowerCase()}`
+function getCombatStateKey(gameId: number, address: string): string {
+  return `dark-waters-combat-state:${gameId}:${address.toLowerCase()}`
 }
 
 function createEmptyGrid(): CombatCell[][] {
@@ -33,11 +39,11 @@ function createEmptyGrid(): CombatCell[][] {
 function createFallbackFleetGrid(): CombatCell[][] {
   const grid = createEmptyGrid()
   const placements = [
-    { shipId: "carrier", cells: [[0,1],[0,2],[0,3],[0,4],[0,5]] },
-    { shipId: "battleship", cells: [[2,3],[3,3],[4,3],[5,3]] },
-    { shipId: "cruiser", cells: [[4,7],[4,8],[4,9]] },
-    { shipId: "submarine", cells: [[7,0],[7,1],[7,2]] },
-    { shipId: "destroyer", cells: [[9,5],[9,6]] },
+    { shipId: "carrier", cells: [[0, 1], [0, 2], [0, 3], [0, 4], [0, 5]] },
+    { shipId: "battleship", cells: [[2, 3], [3, 3], [4, 3], [5, 3]] },
+    { shipId: "cruiser", cells: [[4, 7], [4, 8], [4, 9]] },
+    { shipId: "submarine", cells: [[7, 0], [7, 1], [7, 2]] },
+    { shipId: "destroyer", cells: [[9, 5], [9, 6]] },
   ]
   for (const ship of placements) {
     for (const [r, c] of ship.cells) {
@@ -56,39 +62,6 @@ function createFleetGridFromBoard(board: Ship[]): CombatCell[][] {
   }
   return grid
 }
-
-function getPlayerFleetGrid(gameId: number | null, address?: string): CombatCell[][] {
-  if (typeof window === "undefined") return createFallbackFleetGrid()
-  if (!gameId || !address) return createFallbackFleetGrid()
-
-  const boardJson =
-    localStorage.getItem(getBoardKey(gameId, address)) ??
-    localStorage.getItem(LS_BOARD)
-  if (!boardJson) return createFallbackFleetGrid()
-
-  try {
-    const board: Ship[] = JSON.parse(boardJson)
-    return createFleetGridFromBoard(board)
-  } catch {
-    return createFallbackFleetGrid()
-  }
-}
-
-const INITIAL_PLAYER_SHIPS: ShipHealth[] = [
-  { id: "carrier", name: "Carrier", size: 5, hits: 0, sunk: false },
-  { id: "battleship", name: "Battleship", size: 4, hits: 0, sunk: false },
-  { id: "cruiser", name: "Cruiser", size: 3, hits: 0, sunk: false },
-  { id: "submarine", name: "Submarine", size: 3, hits: 0, sunk: false },
-  { id: "destroyer", name: "Destroyer", size: 2, hits: 0, sunk: false },
-]
-
-const INITIAL_ENEMY_SHIPS: ShipHealth[] = [
-  { id: "e-carrier", name: "Carrier", size: 5, hits: 0, sunk: false },
-  { id: "e-battleship", name: "Battleship", size: 4, hits: 0, sunk: false },
-  { id: "e-cruiser", name: "Cruiser", size: 3, hits: 0, sunk: false },
-  { id: "e-submarine", name: "Submarine", size: 3, hits: 0, sunk: false },
-  { id: "e-destroyer", name: "Destroyer", size: 2, hits: 0, sunk: false },
-]
 
 function getCoordinateLabel(row: number, col: number): string {
   return `${String.fromCharCode(65 + row)}${col + 1}`
@@ -117,35 +90,48 @@ function buildFleetHealth(template: ShipHealth[], hitCount: number): ShipHealth[
   })
 }
 
+const INITIAL_PLAYER_SHIPS: ShipHealth[] = [
+  { id: "carrier", name: "Carrier", size: 5, hits: 0, sunk: false },
+  { id: "battleship", name: "Battleship", size: 4, hits: 0, sunk: false },
+  { id: "cruiser", name: "Cruiser", size: 3, hits: 0, sunk: false },
+  { id: "submarine", name: "Submarine", size: 3, hits: 0, sunk: false },
+  { id: "destroyer", name: "Destroyer", size: 2, hits: 0, sunk: false },
+]
+
+const INITIAL_ENEMY_SHIPS: ShipHealth[] = [
+  { id: "e-carrier", name: "Carrier", size: 5, hits: 0, sunk: false },
+  { id: "e-battleship", name: "Battleship", size: 4, hits: 0, sunk: false },
+  { id: "e-cruiser", name: "Cruiser", size: 3, hits: 0, sunk: false },
+  { id: "e-submarine", name: "Submarine", size: 3, hits: 0, sunk: false },
+  { id: "e-destroyer", name: "Destroyer", size: 2, hits: 0, sunk: false },
+]
+
 export function useCombat() {
   const { address } = useAccount()
-  const { attack } = useGameActions()
+  const { commitAttack, revealAttack } = useGameActions()
   const { toast } = useToast()
 
   const [isPlayerTurn, setIsPlayerTurn] = useState(true)
-  const [playerGrid, setPlayerGrid] = useState<CombatCell[][]>(() =>
-    getPlayerFleetGrid(null, address)
-  )
+  const [playerGrid, setPlayerGrid] = useState<CombatCell[][]>(createFallbackFleetGrid)
   const [targetGrid, setTargetGrid] = useState<CombatCell[][]>(createEmptyGrid)
   const [battleLog, setBattleLog] = useState<BattleLogEntry[]>([])
   const [pendingCell, setPendingCell] = useState<{ row: number; col: number } | null>(null)
   const [gameOver, setGameOver] = useState<"win" | "lose" | null>(null)
   const [isAwaitingTurnHandoff, setIsAwaitingTurnHandoff] = useState(false)
+
   const logIdRef = useRef(0)
   const processedPlayerRevealRef = useRef<Set<string>>(new Set())
   const processedEnemyRevealRef = useRef<Set<string>>(new Set())
 
-  // Read gameId from localStorage
   const [gameId, setGameId] = useState<number | null>(null)
   useEffect(() => {
     const stored = localStorage.getItem(LS_GAME_ID)
     if (stored) setGameId(Number(stored))
   }, [])
 
-  // ── Game State Sync ────────────────────────────────────────────────
   const { gameState } = useGameState(gameId)
-
   const canFire = isPlayerTurn && !isAwaitingTurnHandoff
+
   const playerShips = useMemo(
     () => buildFleetHealth(INITIAL_PLAYER_SHIPS, countHitCells(playerGrid)),
     [playerGrid]
@@ -156,7 +142,9 @@ export function useCombat() {
   )
 
   useEffect(() => {
-    setPlayerGrid(getPlayerFleetGrid(gameId, address))
+    let cancelled = false
+
+    setPlayerGrid(createFallbackFleetGrid())
     setTargetGrid(createEmptyGrid())
     setBattleLog([])
     setPendingCell(null)
@@ -166,27 +154,66 @@ export function useCombat() {
     processedPlayerRevealRef.current.clear()
     processedEnemyRevealRef.current.clear()
     logIdRef.current = 0
+
+    if (!gameId || !address) return
+
+    let loadedPersistedState = false
+    const persistedRaw = localStorage.getItem(getCombatStateKey(gameId, address))
+    if (persistedRaw) {
+      try {
+        const parsed = JSON.parse(persistedRaw) as PersistedCombatState
+        if (!cancelled) {
+          loadedPersistedState = true
+          setPlayerGrid(parsed.playerGrid)
+          setTargetGrid(parsed.targetGrid)
+          setBattleLog(parsed.battleLog ?? [])
+          logIdRef.current = parsed.logCounter ?? 0
+          processedPlayerRevealRef.current = new Set(parsed.playerRevealIds ?? [])
+          processedEnemyRevealRef.current = new Set(parsed.enemyRevealIds ?? [])
+        }
+      } catch {
+        localStorage.removeItem(getCombatStateKey(gameId, address))
+      }
+    }
+
+    ;(async () => {
+      const secrets = await loadBoardSecrets(gameId, address)
+      if (cancelled || !secrets || loadedPersistedState) return
+      setPlayerGrid(createFleetGridFromBoard(secrets.board))
+    })()
+
+    return () => {
+      cancelled = true
+    }
   }, [gameId, address])
 
-  // Sync turn state with blockchain events
   useEffect(() => {
-    if (gameState) {
-        // If game is over, set game over state
-        if (!gameState.isActive && gameState.winner) {
-            const isWin = BigInt(gameState.winner) === BigInt(address || "0x0");
-            setGameOver(isWin ? "win" : "lose");
-        }
-
-        // Update turn if not game over
-        // We only update if the turn has CHANGED to avoid jitter/loops if we have local optimistic updates
-        if (gameState.isActive) {
-            setIsPlayerTurn(gameState.isMyTurn);
-            if (isAwaitingTurnHandoff && !gameState.isMyTurn) {
-              setIsAwaitingTurnHandoff(false);
-            }
-        }
+    if (!gameId || !address) return
+    const snapshot: PersistedCombatState = {
+      playerGrid,
+      targetGrid,
+      battleLog: battleLog.slice(0, 80),
+      playerRevealIds: Array.from(processedPlayerRevealRef.current).slice(-2000),
+      enemyRevealIds: Array.from(processedEnemyRevealRef.current).slice(-2000),
+      logCounter: logIdRef.current,
     }
-  }, [gameState, address, isAwaitingTurnHandoff]);
+    localStorage.setItem(getCombatStateKey(gameId, address), JSON.stringify(snapshot))
+  }, [gameId, address, playerGrid, targetGrid, battleLog])
+
+  useEffect(() => {
+    if (!gameState) return
+    if (!gameState.isActive && gameState.winner) {
+      const isWin = BigInt(gameState.winner) === BigInt(address || "0x0")
+      setGameOver(isWin ? "win" : "lose")
+    }
+
+    if (gameState.isActive) {
+      setIsPlayerTurn(gameState.isMyTurn)
+      if (isAwaitingTurnHandoff && !gameState.isMyTurn) {
+        setIsAwaitingTurnHandoff(false)
+      }
+    }
+  }, [gameState, address, isAwaitingTurnHandoff])
 
   const addLogEntry = useCallback(
     (type: "player" | "enemy", coordinate: string, result: "hit" | "miss" | "sunk") => {
@@ -203,20 +230,20 @@ export function useCombat() {
         },
       }
       logIdRef.current += 1
-      const entry: BattleLogEntry = {
-        id: String(logIdRef.current),
-        type,
-        message: messageMap[type][result],
-        coordinate,
-        result,
-        timestamp: Date.now(),
-      }
-      setBattleLog((prev) => [entry, ...prev])
+      setBattleLog((prev) => [
+        {
+          id: String(logIdRef.current),
+          type,
+          message: messageMap[type][result],
+          coordinate,
+          result,
+          timestamp: Date.now(),
+        },
+        ...prev,
+      ])
     },
     []
   )
-
-  // ── Fire at target: submit attack on-chain ─────────────────────────
 
   const fireAtTarget = useCallback(
     async (row: number, col: number) => {
@@ -233,41 +260,40 @@ export function useCombat() {
         return
       }
 
-      // Mark cell as pending
       setPendingCell({ row, col })
-      const newTargetGrid = targetGrid.map((r) => r.map((c) => ({ ...c })))
-      newTargetGrid[row][col] = { state: "pending" }
-      setTargetGrid(newTargetGrid)
+      const optimisticGrid = targetGrid.map((r) => r.map((c) => ({ ...c })))
+      optimisticGrid[row][col] = { state: "pending" }
+      setTargetGrid(optimisticGrid)
 
       const coord = getCoordinateLabel(row, col)
+      const revealNonce = randomFeltHex(16)
+      const attackHash = computeAttackCommitmentHash(col, row, revealNonce)
 
       try {
-        // Submit attack on-chain (row = y, col = x)
-        const result = await attack(gameId, col, row)
+        await commitAttack(gameId, attackHash)
+        await revealAttack(gameId, col, row, revealNonce)
 
-        if (result) {
-          toast({
-            title: "Attack Submitted!",
-            description: `Strike at ${coord} confirmed on-chain. Awaiting reveal...`,
-          })
+        toast({
+          title: "Attack Committed",
+          description: `Strike at ${coord} submitted as commit/reveal. Awaiting defender proof...`,
+        })
 
-          // After attacking, it's the opponent's turn to reveal
-          setIsPlayerTurn(false)
-          setIsAwaitingTurnHandoff(true)
-          setPendingCell(null)
-        }
+        setIsPlayerTurn(false)
+        setIsAwaitingTurnHandoff(true)
+        setPendingCell(null)
       } catch (err) {
-        console.error("Attack failed:", err)
+        logEvent("error", {
+          code: ERROR_CODES.ATTACK_REVEAL_FAILED,
+          message: "Attack commit/reveal failed.",
+          metadata: { gameId, x: col, y: row, error: err instanceof Error ? err.message : err },
+        })
 
-        // Revert the pending cell
         const reverted = targetGrid.map((r) => r.map((c) => ({ ...c })))
         reverted[row][col] = { state: "empty" }
         setTargetGrid(reverted)
         setPendingCell(null)
         setIsAwaitingTurnHandoff(false)
-        if (gameState) {
-          setIsPlayerTurn(gameState.isMyTurn)
-        }
+        if (gameState) setIsPlayerTurn(gameState.isMyTurn)
 
         toast({
           title: "Attack Failed",
@@ -276,17 +302,23 @@ export function useCombat() {
         })
       }
     },
-    [canFire, gameOver, targetGrid, gameId, attack, toast, gameState]
+    [
+      canFire,
+      gameOver,
+      targetGrid,
+      gameId,
+      commitAttack,
+      revealAttack,
+      toast,
+      gameState,
+    ]
   )
-
-  // ── Update grid from revealed events ───────────────────────────────
 
   const applyRevealedAttack = useCallback(
     (revealId: string, x: number, y: number, isHit: boolean) => {
       if (processedPlayerRevealRef.current.has(revealId)) return
       processedPlayerRevealRef.current.add(revealId)
 
-      // Update the target grid (attacks I made)
       setTargetGrid((prev) => {
         const updated = prev.map((r) => r.map((c) => ({ ...c })))
         if (updated[y] && updated[y][x]) {
@@ -295,15 +327,10 @@ export function useCombat() {
         return updated
       })
 
-      const coord = getCoordinateLabel(y, x)
-      addLogEntry("player", coord, isHit ? "hit" : "miss")
-
-      // Turn is now managed by useGameState sync (not set here)
+      addLogEntry("player", getCoordinateLabel(y, x), isHit ? "hit" : "miss")
     },
     [addLogEntry]
   )
-
-  // ── Apply incoming attack on our board ─────────────────────────────
 
   const applyIncomingAttack = useCallback(
     (revealId: string, x: number, y: number, isHit: boolean) => {
@@ -321,8 +348,7 @@ export function useCombat() {
         return updated
       })
 
-      const coord = getCoordinateLabel(y, x)
-      addLogEntry("enemy", coord, isHit ? "hit" : "miss")
+      addLogEntry("enemy", getCoordinateLabel(y, x), isHit ? "hit" : "miss")
     },
     [addLogEntry]
   )
