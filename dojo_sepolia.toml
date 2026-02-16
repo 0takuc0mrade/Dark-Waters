@@ -4,7 +4,7 @@ description = "The official Dojo Starter guide, the quickest and most streamline
 cover_uri = "file://assets/cover.png"
 icon_uri = "file://assets/icon.png"
 website = "https://github.com/dojoengine/dojo-starter"
-seed = "dark_waters"
+seed = "dark_waters_v2"
 
 [world.socials]
 x = "https://x.com/ohayo_dojo"
@@ -19,8 +19,8 @@ default = "dark_waters"
 rpc_url = "https://api.cartridge.gg/x/starknet/sepolia"
 # account_address = "" # env: DOJO_ACCOUNT_ADDRESS
 # private_key = ""     # env: DOJO_PRIVATE_KEY
-world_address = "0x042ec066eef86a6ae688ccc48ad45a887ab142386d9a43e7949e17f9198ee8ff"
-world_block = 6449650
+world_address = "0x079e3198f644ce7761f1add8cdde043be8a8726d02ef9904d6015205da8eb1a1"
+world_block = 6587147
 
 [writers]
 "dark_waters" = ["dark_waters-Actions"]

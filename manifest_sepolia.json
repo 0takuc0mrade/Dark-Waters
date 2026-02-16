@@ -1,8 +1,8 @@
 {
   "world": {
     "class_hash": "0x381899226c066a0262f45d6ab815f89818e0874ec3e66cdf72b5e92d8db4680",
-    "address": "0x42ec066eef86a6ae688ccc48ad45a887ab142386d9a43e7949e17f9198ee8ff",
-    "seed": "dark_waters",
+    "address": "0x79e3198f644ce7761f1add8cdde043be8a8726d02ef9904d6015205da8eb1a1",
+    "seed": "dark_waters_v2",
     "name": "dark_waters",
     "entrypoints": [
       "uuid",
@@ -33,15 +33,16 @@
   },
   "contracts": [
     {
-      "address": "0x1b7e17ad6bbc599b91ae78065708d5d49d6eaccf97908f36e9c1066d7c7085f",
-      "class_hash": "0x268d3077766c0b42551b163d5321f087aede4f3c17621c1f8dfeff25bd9c5cf",
+      "address": "0x18f4e1f102a3a2205ae200509ac059c432b545819324faf50a7412e1f652cce",
+      "class_hash": "0x1b89e5316485f4a8ad9d0476064ee4b6334c53b7eb498abf45de0b518e2ac21",
       "init_calldata": [],
       "tag": "dark_waters-Actions",
       "selector": "0x7f689e2d818b18c76ed7a72d8b4bf448736c3dcbff39d1a36ed05da4fc67e00",
       "systems": [
         "spawn_game",
         "commit_board",
-        "attack",
+        "commit_attack",
+        "reveal_attack",
         "reveal",
         "claim_timeout_win",
         "upgrade"
@@ -86,6 +87,38 @@
       "class_hash": "0x47d7f26ad5154b23d70d0949dcf436d1f151d880d022c0375e0a8e4d298c3a6",
       "tag": "dark_waters-Attack",
       "selector": "0x4f1547418500b9059763312da02b9437205acdd1822c11f8f93cc6b885628d4"
+    },
+    {
+      "members": [
+        {
+          "name": "game_id",
+          "type": "core::integer::u32",
+          "key": true
+        },
+        {
+          "name": "attacker",
+          "type": "core::starknet::contract_address::ContractAddress",
+          "key": true
+        },
+        {
+          "name": "attack_hash",
+          "type": "core::felt252",
+          "key": false
+        },
+        {
+          "name": "timestamp",
+          "type": "core::integer::u64",
+          "key": false
+        },
+        {
+          "name": "is_revealed",
+          "type": "core::bool",
+          "key": false
+        }
+      ],
+      "class_hash": "0x788519f9e87df65baf3311b34837aadd3802fcbc40e1f78eebf3b57a840f275",
+      "tag": "dark_waters-AttackCommitment",
+      "selector": "0x675133507244c9a1a6fbd256df74ed957d2ac611d717e83c39d4bbbd0bd48de"
     },
     {
       "members": [
@@ -182,9 +215,63 @@
       "class_hash": "0x4dc1650c81e7baf45673a85db3da98290e3603d07ece557f8da9ab38a2058a4",
       "tag": "dark_waters-GameCounter",
       "selector": "0x53aac0505259e3365430836e247b48ddba7de8330573930a9ef43b0def4c57d"
+    },
+    {
+      "members": [
+        {
+          "name": "game_id",
+          "type": "core::integer::u32",
+          "key": true
+        },
+        {
+          "name": "attacker",
+          "type": "core::starknet::contract_address::ContractAddress",
+          "key": false
+        },
+        {
+          "name": "x",
+          "type": "core::integer::u8",
+          "key": false
+        },
+        {
+          "name": "y",
+          "type": "core::integer::u8",
+          "key": false
+        },
+        {
+          "name": "is_pending",
+          "type": "core::bool",
+          "key": false
+        }
+      ],
+      "class_hash": "0x2b7177fb71bfd142eb698181217b244b35088be4cc5f72d15df4bebd3cca491",
+      "tag": "dark_waters-PendingAttack",
+      "selector": "0x16dce0337b394178dda1d2ef741cd897dce9d51e5ff48230aee79aaec9ce232"
     }
   ],
   "events": [
+    {
+      "members": [
+        {
+          "name": "game_id",
+          "type": "core::integer::u32",
+          "key": true
+        },
+        {
+          "name": "attacker",
+          "type": "core::starknet::contract_address::ContractAddress",
+          "key": false
+        },
+        {
+          "name": "attack_hash",
+          "type": "core::felt252",
+          "key": false
+        }
+      ],
+      "class_hash": "0x5aff79a3011ce6b366d25f8490368cfd5740d2fbdcd468568414dfdef89b4db",
+      "tag": "dark_waters-attack_committed",
+      "selector": "0x659212914b504e78d3120e44116d7b1cb18f4c646f804a7060e7ea374337622"
+    },
     {
       "members": [
         {
@@ -220,6 +307,11 @@
           "key": true
         },
         {
+          "name": "attacker",
+          "type": "core::starknet::contract_address::ContractAddress",
+          "key": false
+        },
+        {
           "name": "x",
           "type": "core::integer::u8",
           "key": false
@@ -235,7 +327,7 @@
           "key": false
         }
       ],
-      "class_hash": "0x66c6cd0d3c442dc29223a73a08a0839edf3f7be9d74971d099c903b1fbe764b",
+      "class_hash": "0x34e73cfdbe998651dccd3883696bdba3ac4e0ec9a25e686976374a63665fadf",
       "tag": "dark_waters-attack_revealed",
       "selector": "0x2b1e1c82d7adc6a31dcfd63a739314b26b4319934d854c9906d1039b62d8d91"
     },
@@ -506,6 +598,50 @@
     },
     {
       "type": "struct",
+      "name": "dark_waters::models::AttackCommitment",
+      "members": [
+        {
+          "name": "game_id",
+          "type": "core::integer::u32"
+        },
+        {
+          "name": "attacker",
+          "type": "core::starknet::contract_address::ContractAddress"
+        },
+        {
+          "name": "attack_hash",
+          "type": "core::felt252"
+        },
+        {
+          "name": "timestamp",
+          "type": "core::integer::u64"
+        },
+        {
+          "name": "is_revealed",
+          "type": "core::bool"
+        }
+      ]
+    },
+    {
+      "type": "struct",
+      "name": "dark_waters::models::AttackCommitmentValue",
+      "members": [
+        {
+          "name": "attack_hash",
+          "type": "core::felt252"
+        },
+        {
+          "name": "timestamp",
+          "type": "core::integer::u64"
+        },
+        {
+          "name": "is_revealed",
+          "type": "core::bool"
+        }
+      ]
+    },
+    {
+      "type": "struct",
       "name": "dark_waters::models::AttackValue",
       "members": [
         {
@@ -664,6 +800,54 @@
     },
     {
       "type": "struct",
+      "name": "dark_waters::models::PendingAttack",
+      "members": [
+        {
+          "name": "game_id",
+          "type": "core::integer::u32"
+        },
+        {
+          "name": "attacker",
+          "type": "core::starknet::contract_address::ContractAddress"
+        },
+        {
+          "name": "x",
+          "type": "core::integer::u8"
+        },
+        {
+          "name": "y",
+          "type": "core::integer::u8"
+        },
+        {
+          "name": "is_pending",
+          "type": "core::bool"
+        }
+      ]
+    },
+    {
+      "type": "struct",
+      "name": "dark_waters::models::PendingAttackValue",
+      "members": [
+        {
+          "name": "attacker",
+          "type": "core::starknet::contract_address::ContractAddress"
+        },
+        {
+          "name": "x",
+          "type": "core::integer::u8"
+        },
+        {
+          "name": "y",
+          "type": "core::integer::u8"
+        },
+        {
+          "name": "is_pending",
+          "type": "core::bool"
+        }
+      ]
+    },
+    {
+      "type": "struct",
       "name": "dark_waters::models::Vec2",
       "members": [
         {
@@ -679,6 +863,12 @@
     {
       "type": "event",
       "name": "dark_waters::models::m_Attack::Event",
+      "kind": "enum",
+      "variants": []
+    },
+    {
+      "type": "event",
+      "name": "dark_waters::models::m_AttackCommitment::Event",
       "kind": "enum",
       "variants": []
     },
@@ -702,6 +892,12 @@
     },
     {
       "type": "event",
+      "name": "dark_waters::models::m_PendingAttack::Event",
+      "kind": "enum",
+      "variants": []
+    },
+    {
+      "type": "event",
       "name": "dark_waters::systems::actions::Actions::Event",
       "kind": "enum",
       "variants": [
@@ -714,6 +910,38 @@
           "name": "WorldProviderEvent",
           "type": "dojo::contract::components::world_provider::world_provider_cpt::Event",
           "kind": "nested"
+        }
+      ]
+    },
+    {
+      "type": "struct",
+      "name": "dark_waters::systems::actions::Actions::attack_committed",
+      "members": [
+        {
+          "name": "game_id",
+          "type": "core::integer::u32"
+        },
+        {
+          "name": "attacker",
+          "type": "core::starknet::contract_address::ContractAddress"
+        },
+        {
+          "name": "attack_hash",
+          "type": "core::felt252"
+        }
+      ]
+    },
+    {
+      "type": "struct",
+      "name": "dark_waters::systems::actions::Actions::attack_committedValue",
+      "members": [
+        {
+          "name": "attacker",
+          "type": "core::starknet::contract_address::ContractAddress"
+        },
+        {
+          "name": "attack_hash",
+          "type": "core::felt252"
         }
       ]
     },
@@ -766,6 +994,10 @@
           "type": "core::integer::u32"
         },
         {
+          "name": "attacker",
+          "type": "core::starknet::contract_address::ContractAddress"
+        },
+        {
           "name": "x",
           "type": "core::integer::u8"
         },
@@ -783,6 +1015,10 @@
       "type": "struct",
       "name": "dark_waters::systems::actions::Actions::attack_revealedValue",
       "members": [
+        {
+          "name": "attacker",
+          "type": "core::starknet::contract_address::ContractAddress"
+        },
         {
           "name": "x",
           "type": "core::integer::u8"
@@ -828,6 +1064,12 @@
           "type": "core::felt252"
         }
       ]
+    },
+    {
+      "type": "event",
+      "name": "dark_waters::systems::actions::Actions::e_attack_committed::Event",
+      "kind": "enum",
+      "variants": []
     },
     {
       "type": "event",
@@ -997,7 +1239,23 @@
         },
         {
           "type": "function",
-          "name": "attack",
+          "name": "commit_attack",
+          "inputs": [
+            {
+              "name": "game_id",
+              "type": "core::integer::u32"
+            },
+            {
+              "name": "attack_hash",
+              "type": "core::felt252"
+            }
+          ],
+          "outputs": [],
+          "state_mutability": "external"
+        },
+        {
+          "type": "function",
+          "name": "reveal_attack",
           "inputs": [
             {
               "name": "game_id",
@@ -1010,6 +1268,10 @@
             {
               "name": "y",
               "type": "core::integer::u8"
+            },
+            {
+              "name": "reveal_nonce",
+              "type": "core::felt252"
             }
           ],
           "outputs": [],
@@ -1032,7 +1294,7 @@
               "type": "core::integer::u8"
             },
             {
-              "name": "salt",
+              "name": "cell_nonce",
               "type": "core::felt252"
             },
             {

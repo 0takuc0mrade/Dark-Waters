@@ -58,3 +58,26 @@ pub struct Attack{
     pub is_revealed: bool,
     pub is_hit: bool,
 }
+
+#[derive(Copy, Drop, Serde, Debug)]
+#[dojo::model]
+pub struct AttackCommitment {
+    #[key]
+    pub game_id: u32,
+    #[key]
+    pub attacker: ContractAddress,
+    pub attack_hash: felt252,
+    pub timestamp: u64,
+    pub is_revealed: bool,
+}
+
+#[derive(Copy, Drop, Serde, Debug)]
+#[dojo::model]
+pub struct PendingAttack {
+    #[key]
+    pub game_id: u32,
+    pub attacker: ContractAddress,
+    pub x: u8,
+    pub y: u8,
+    pub is_pending: bool,
+}
