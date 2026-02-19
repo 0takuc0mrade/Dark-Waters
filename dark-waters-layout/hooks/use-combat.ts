@@ -122,6 +122,7 @@ export function useCombat() {
   const logIdRef = useRef(0)
   const processedPlayerRevealRef = useRef<Set<string>>(new Set())
   const processedEnemyRevealRef = useRef<Set<string>>(new Set())
+  const hasHydratedTurnRef = useRef(false)
 
   const [gameId, setGameId] = useState<number | null>(null)
   useEffect(() => {
@@ -153,6 +154,7 @@ export function useCombat() {
     setIsAwaitingTurnHandoff(false)
     processedPlayerRevealRef.current.clear()
     processedEnemyRevealRef.current.clear()
+    hasHydratedTurnRef.current = false
     logIdRef.current = 0
 
     if (!gameId || !address) return
@@ -208,8 +210,13 @@ export function useCombat() {
     }
 
     if (gameState.isActive) {
-      setIsPlayerTurn(gameState.isMyTurn)
+      if (!hasHydratedTurnRef.current) {
+        setIsPlayerTurn(gameState.isMyTurn)
+        hasHydratedTurnRef.current = true
+      }
+
       if (isAwaitingTurnHandoff && !gameState.isMyTurn) {
+        setIsPlayerTurn(false)
         setIsAwaitingTurnHandoff(false)
       }
     }
@@ -327,6 +334,8 @@ export function useCombat() {
         return updated
       })
 
+      setIsPlayerTurn(false)
+      setIsAwaitingTurnHandoff(false)
       addLogEntry("player", getCoordinateLabel(y, x), isHit ? "hit" : "miss")
     },
     [addLogEntry]
@@ -348,6 +357,8 @@ export function useCombat() {
         return updated
       })
 
+      setIsPlayerTurn(true)
+      setIsAwaitingTurnHandoff(false)
       addLogEntry("enemy", getCoordinateLabel(y, x), isHit ? "hit" : "miss")
     },
     [addLogEntry]

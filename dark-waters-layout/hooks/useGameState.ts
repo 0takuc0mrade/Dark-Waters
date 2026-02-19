@@ -20,7 +20,7 @@ const BOARD_COMMITTED_EVENT_HASH =
   "0x575b6f66dbb5b17fb1631bcf236f4a0328f93190da5ce469732b822e40671e3"
 const ATTACK_REVEALED_EVENT_HASH =
   "0x2b1e1c82d7adc6a31dcfd63a739314b26b4319934d854c9906d1039b62d8d91"
-const CACHE_SCHEMA = "v3"
+const CACHE_SCHEMA = "v4"
 const DEPLOYMENT_SCOPE = `${SEPOLIA_CONFIG.WORLD_ADDRESS.toLowerCase()}:${SEPOLIA_CONFIG.DEPLOYED_BLOCK}`
 
 export type GamePhase = "Setup" | "Playing" | "Finished"
@@ -42,6 +42,8 @@ interface ParsedReveal {
   id: string
   attacker: string
   isHit: boolean
+  blockNumber: number
+  eventIndex: number
 }
 
 interface ParsedGameCache {
@@ -93,10 +95,25 @@ function loadCache(gameId: number, address: string): ParsedGameCache {
   }
   try {
     const parsed = JSON.parse(raw) as ParsedGameCache
+    const normalizedReveals = Array.isArray(parsed.reveals)
+      ? parsed.reveals.map((reveal) => ({
+          id: reveal.id,
+          attacker: reveal.attacker,
+          isHit: reveal.isHit,
+          blockNumber:
+            typeof reveal.blockNumber === "number" && Number.isFinite(reveal.blockNumber)
+              ? reveal.blockNumber
+              : 0,
+          eventIndex:
+            typeof reveal.eventIndex === "number" && Number.isFinite(reveal.eventIndex)
+              ? reveal.eventIndex
+              : 0,
+        }))
+      : []
     return {
       spawn: parsed.spawn ?? null,
       commits: Array.isArray(parsed.commits) ? parsed.commits : [],
-      reveals: Array.isArray(parsed.reveals) ? parsed.reveals : [],
+      reveals: normalizedReveals,
     }
   } catch {
     return { spawn: null, commits: [], reveals: [] }
@@ -129,7 +146,13 @@ function deriveState(
   let p1Hits = 0
   let p2Hits = 0
 
-  for (const reveal of cache.reveals) {
+  const orderedReveals = [...cache.reveals].sort((a, b) => {
+    if (a.blockNumber !== b.blockNumber) return a.blockNumber - b.blockNumber
+    if (a.eventIndex !== b.eventIndex) return a.eventIndex - b.eventIndex
+    return a.id.localeCompare(b.id)
+  })
+
+  for (const reveal of orderedReveals) {
     if (reveal.isHit) {
       if (sameAddress(reveal.attacker, player1)) p1Hits += 1
       else p2Hits += 1
@@ -188,7 +211,10 @@ export const useGameState = (gameId: number | null) => {
     const fromCache = deriveState(gameId, address, cache)
     if (fromCache) setGameState(fromCache)
 
-    const syncOne = async (eventHash: string, handler: (event: any, id: string) => void) => {
+    const syncOne = async (
+      eventHash: string,
+      handler: (event: any, id: string, blockNumber: number, eventIndex: number) => void
+    ) => {
       const scope = `game-state:${CACHE_SCHEMA}:${DEPLOYMENT_SCOPE}:${gameId}:${address.toLowerCase()}:${eventHash}`
       const checkpoint = loadCheckpoint(scope, SEPOLIA_CONFIG.DEPLOYED_BLOCK)
       const events = await fetchEventsSince(provider.current, eventHash, checkpoint.fromBlock)
@@ -197,11 +223,18 @@ export const useGameState = (gameId: number | null) => {
       const seen = new Set(checkpoint.seenEventIds)
 
       for (const event of events) {
-        maxBlock = Math.max(maxBlock, eventBlockNumber(event, checkpoint.fromBlock))
+        const blockNumber = eventBlockNumber(event, checkpoint.fromBlock)
+        const rawEventIndex = event.event_index ?? event.index
+        const eventIndex =
+          typeof rawEventIndex === "number" && Number.isFinite(rawEventIndex)
+            ? rawEventIndex
+            : 0
+
+        maxBlock = Math.max(maxBlock, blockNumber)
         const id = computeEventId(event)
         if (seen.has(id)) continue
         seen.add(id)
-        handler(event, id)
+        handler(event, id, blockNumber, eventIndex)
       }
 
       saveCheckpoint(scope, { fromBlock: maxBlock, seenEventIds: Array.from(seen) })
@@ -225,12 +258,12 @@ export const useGameState = (gameId: number | null) => {
           }
         })
 
-        await syncOne(ATTACK_REVEALED_EVENT_HASH, (event, id) => {
+        await syncOne(ATTACK_REVEALED_EVENT_HASH, (event, id, blockNumber, eventIndex) => {
           if (!event.data || event.data.length < 7 || Number(event.data[1]) !== gameId) return
           const attacker = event.data[3]
           const isHit = Number(event.data[6]) === 1
           if (!cache.reveals.some((reveal) => reveal.id === id)) {
-            cache.reveals.push({ id, attacker, isHit })
+            cache.reveals.push({ id, attacker, isHit, blockNumber, eventIndex })
           }
         })
 
