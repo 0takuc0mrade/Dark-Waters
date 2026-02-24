@@ -17,4 +17,10 @@ export const SEPOLIA_CONFIG = {
 
   /** Starknet chain ID */
   CHAIN_ID: "SN_SEPOLIA",
+
+  /** Optional token contract addresses for staked matches */
+  TOKENS: {
+    STRK: process.env.NEXT_PUBLIC_SEPOLIA_STRK_TOKEN_ADDRESS ?? "",
+    WBTC: process.env.NEXT_PUBLIC_SEPOLIA_WBTC_TOKEN_ADDRESS ?? "",
+  },
 } as const

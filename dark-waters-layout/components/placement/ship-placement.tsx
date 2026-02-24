@@ -1,11 +1,17 @@
 "use client"
 
-import { useCallback, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
+import { useAccount } from "@starknet-react/core"
+import { Amount, fromAddress } from "starkzap"
 import { useShipPlacement } from "@/hooks/use-ship-placement"
 import { useGameActions } from "@/src/hooks/useGameActions"
 import { useToast } from "@/hooks/use-toast"
 import { useWallet } from "@/components/wallet-provider"
+import { useGameState } from "@/hooks/useGameState"
+import { createStarkzapWallet } from "@/src/lib/starkzap-wallet-adapter"
+import { getStakeTokenByAddress } from "@/src/lib/stake-token"
+import { SEPOLIA_CONFIG } from "@/src/config/sepolia-config"
 import { BoardMerkle, type Ship as MerkleShip } from "@/src/utils/merkle"
 import { createNewMasterSecret, storeBoardSecrets } from "@/src/utils/secret-storage"
 import { PlacementGrid } from "./placement-grid"
@@ -16,6 +22,7 @@ import { ShipControls } from "./ship-controls"
 const LS_GAME_ID = "dark-waters-gameId"
 export function ShipPlacement() {
   const router = useRouter()
+  const { account } = useAccount()
 
   const {
     ships,
@@ -33,10 +40,19 @@ export function ShipPlacement() {
     selectShip,
   } = useShipPlacement()
 
-  const { commitBoard } = useGameActions()
+  const { commitBoard, lockStake } = useGameActions()
   const { toast } = useToast()
   const { address } = useWallet()
+  const starkzapWallet = useMemo(() => createStarkzapWallet(account), [account])
   const [isCommitting, setIsCommitting] = useState(false)
+  const [hydratedGameId, setHydratedGameId] = useState<number | null>(null)
+  const { gameState } = useGameState(hydratedGameId)
+
+  useEffect(() => {
+    if (typeof window === "undefined") return
+    const gameIdStr = localStorage.getItem(LS_GAME_ID)
+    if (gameIdStr) setHydratedGameId(Number(gameIdStr))
+  }, [])
 
   const handleCellClick = useCallback(
     (row: number, col: number) => {
@@ -92,6 +108,15 @@ export function ShipPlacement() {
     }
 
     const gameId = Number(gameIdStr)
+    if (!Number.isFinite(gameId) || gameId <= 0) {
+      toast({
+        title: "Invalid Game",
+        description: "The stored game id is invalid. Return to lobby and create/join again.",
+        variant: "destructive",
+      })
+      return
+    }
+    if (hydratedGameId !== gameId) setHydratedGameId(gameId)
 
     // Build the 10×10 board array for the Merkle tree
     // grid[row][col] where row = y, col = x
@@ -131,6 +156,35 @@ export function ShipPlacement() {
     })
 
     try {
+      if (gameState?.isStakedMatch && !gameState.myStakeLocked) {
+        const tokenMeta = getStakeTokenByAddress(gameState.stakeToken)
+        if (!tokenMeta) {
+          throw new Error("Unsupported stake token for this match.")
+        }
+        if (!starkzapWallet) {
+          throw new Error("Wallet is not ready to approve stake transfer.")
+        }
+
+        const stakeAmount = Amount.fromRaw(BigInt(gameState.stakeAmount), tokenMeta.token)
+
+        toast({
+          title: "Approving Stake Token…",
+          description: "Approving escrow spend before locking stake.",
+        })
+
+        const approveTx = await starkzapWallet
+          .tx()
+          .approve(tokenMeta.token, fromAddress(SEPOLIA_CONFIG.ACTIONS_ADDRESS), stakeAmount)
+          .send()
+        await approveTx.wait()
+
+        toast({
+          title: "Locking Stake…",
+          description: "Submitting stake lock transaction before board commit.",
+        })
+        await lockStake(gameId)
+      }
+
       const recoveryPackage = await storeBoardSecrets(gameId, address, board, masterSecret)
 
       const result = await commitBoard(gameId, rootHex)
@@ -170,7 +224,17 @@ export function ShipPlacement() {
     } finally {
       setIsCommitting(false)
     }
-  }, [grid, commitBoard, toast, router, address])
+  }, [
+    grid,
+    commitBoard,
+    lockStake,
+    toast,
+    router,
+    address,
+    gameState,
+    hydratedGameId,
+    starkzapWallet,
+  ])
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-6 lg:px-6 lg:py-8">

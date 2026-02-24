@@ -5,11 +5,25 @@ import { cn } from "@/lib/utils"
 
 interface TurnIndicatorProps {
   isPlayerTurn: boolean
-  gameOver: "win" | "lose" | null
+  gameOver: "win" | "lose" | "draw" | null
 }
 
 export function TurnIndicator({ isPlayerTurn, gameOver }: TurnIndicatorProps) {
   if (gameOver) {
+    if (gameOver === "draw") {
+      return (
+        <div
+          className="flex items-center justify-center gap-3 rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3 font-mono text-sm font-bold tracking-widest uppercase text-amber-200 transition-colors"
+          role="status"
+          aria-live="assertive"
+        >
+          <AlertTriangle className="h-5 w-5" />
+          <span>MATCH CANCELLED: STAKES REFUNDED</span>
+          <AlertTriangle className="h-5 w-5" />
+        </div>
+      )
+    }
+
     const isWin = gameOver === "win"
     return (
       <div

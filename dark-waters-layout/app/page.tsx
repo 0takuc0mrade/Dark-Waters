@@ -1,7 +1,8 @@
 
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useMemo, useCallback } from "react"
+import { useAccount } from "@starknet-react/core"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -15,12 +16,24 @@ import { useMyGames, useGameState } from "@/hooks/useGameState"
 import { useToast } from "@/hooks/use-toast"
 import { CombatDashboard } from "@/components/combat/combat-dashboard"
 import { ShipPlacement } from "@/components/placement/ship-placement"
+import { Amount, fromAddress } from "starkzap"
+import { formatTokenAmountFromUnits } from "@/src/utils/token-amount"
+import {
+  STAKE_TOKEN_OPTIONS,
+  getStakeToken,
+  getStakeTokenByAddress,
+  type StakeTokenSymbol,
+} from "@/src/lib/stake-token"
+import { createStarkzapWallet } from "@/src/lib/starkzap-wallet-adapter"
+import { SEPOLIA_CONFIG } from "@/src/config/sepolia-config"
 
 const LS_GAME_ID = "dark-waters-gameId"
 const LS_ONBOARDING_FUNDED = "dark-waters-onboarding-funded"
 
 export default function Page() {
   const { isConnected, address } = useWallet()
+  const { cancelStakedGame, isLoading: isCancellingStake } = useGameActions()
+  const { toast } = useToast()
   const [gameId, setGameId] = useState<number | null>(null)
 
   // Hydrate gameId from localStorage
@@ -37,6 +50,27 @@ export default function Page() {
     localStorage.removeItem(LS_GAME_ID)
     setGameId(null)
   }
+
+  const handleCancelStakedGame = useCallback(async () => {
+    if (!gameId) return
+    try {
+      const result = await cancelStakedGame(gameId)
+      if (!result) {
+        throw new Error("Connect wallet before submitting cancellation.")
+      }
+      toast({
+        title: "Cancellation Submitted",
+        description:
+          "If setup timeout elapsed and neither board is committed, both stakes will be refunded.",
+      })
+    } catch (error) {
+      toast({
+        title: "Cancellation Failed",
+        description: error instanceof Error ? error.message : "Transaction failed.",
+        variant: "destructive",
+      })
+    }
+  }, [cancelStakedGame, gameId, toast])
 
   if (gameId) {
     // Only show full-page loader on the very first load (no state yet).
@@ -55,15 +89,27 @@ export default function Page() {
     let content = <CombatDashboard />;
     let badgeVariant: "default" | "secondary" | "destructive" | "outline" = "outline";
     let statusText = "Active";
+    const stakeTokenMeta = getStakeTokenByAddress(gameState?.stakeToken)
+    const stakeDisplay =
+      gameState?.isStakedMatch && gameState.stakeAmount
+        ? `${formatTokenAmountFromUnits(
+            gameState.stakeAmount,
+            stakeTokenMeta?.option.decimals ?? 0
+          )} ${stakeTokenMeta?.option.label ?? "TOKEN"}`
+        : null
 
     if (gameState?.phase === "Setup") {
         if (gameState.isMyCommit) {
+            const waitingDescription =
+              gameState.isStakedMatch && !gameState.opponentStakeLocked
+                ? "Waiting for opponent to lock stake and commit their fleet..."
+                : "Waiting for opponent to commit their fleet..."
             content = (
                 <div className="flex flex-col items-center justify-center min-h-[50vh] gap-4">
                     <Loader2 className="h-12 w-12 animate-spin text-primary/50" />
                     <div className="text-center space-y-2">
                         <h2 className="text-xl font-bold">Fleet Deployed</h2>
-                        <p className="text-muted-foreground">Waiting for opponent to commit their fleet...</p>
+                        <p className="text-muted-foreground">{waitingDescription}</p>
                         <p className="text-xs text-muted-foreground/50">Game #{gameId}</p>
                     </div>
                 </div>
@@ -71,7 +117,37 @@ export default function Page() {
             statusText = "Waiting for Opponent";
             badgeVariant = "secondary";
         } else {
-            content = <ShipPlacement />;
+            const canAttemptStakeCancel =
+              gameState.isStakedMatch &&
+              gameState.myStakeLocked &&
+              gameState.opponentStakeLocked &&
+              !gameState.isMyCommit &&
+              !gameState.opponentCommitted &&
+              !gameState.stakeSettled
+
+            content = (
+              <div className="space-y-3">
+                {canAttemptStakeCancel && (
+                  <div className="mx-auto mt-4 max-w-5xl rounded-lg border border-amber-500/40 bg-amber-500/10 p-3">
+                    <p className="text-xs text-amber-200">
+                      If neither player commits a board, either player can cancel after timeout to
+                      refund both stakes.
+                    </p>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="mt-2"
+                      onClick={handleCancelStakedGame}
+                      disabled={isCancellingStake}
+                    >
+                      {isCancellingStake && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                      Cancel Staked Match (After Timeout)
+                    </Button>
+                  </div>
+                )}
+                <ShipPlacement />
+              </div>
+            );
             statusText = "Setup Phase";
             badgeVariant = "secondary";
         }
@@ -88,6 +164,7 @@ export default function Page() {
                 <Anchor className="h-5 w-5 text-primary" />
                 <span className="font-bold text-foreground">Dark Waters</span>
                 <Badge variant={badgeVariant}>Game #{gameId} • {statusText}</Badge>
+                {stakeDisplay && <Badge variant="outline">Stake: {stakeDisplay}</Badge>}
              </div>
              <Button variant="ghost" size="sm" onClick={handleExitGame} className="text-muted-foreground hover:text-destructive">
                 <LogOut className="h-4 w-4 mr-2" />
@@ -126,21 +203,89 @@ export default function Page() {
 
 function LobbyInterface({ onJoin }: { onJoin: (id: number) => void }) {
     const { address } = useWallet()
-    const { spawnGame, isLoading } = useGameActions()
+    const { account } = useAccount()
+    const { spawnGame, spawnGameWithStake, isLoading } = useGameActions()
     const { games, isLoading: loadingGames, refresh } = useMyGames()
     const { toast } = useToast()
+    const starkzapWallet = useMemo(() => createStarkzapWallet(account), [account])
     const [opponent, setOpponent] = useState("")
     const [activeTab, setActiveTab] = useState("host")
     const [fundedChecklist, setFundedChecklist] = useState(false)
+    const [isStakedMatch, setIsStakedMatch] = useState(false)
+    const [stakeToken, setStakeToken] = useState<StakeTokenSymbol>("STRK")
+    const [stakeAmount, setStakeAmount] = useState("0.10")
 
     useEffect(() => {
         setFundedChecklist(localStorage.getItem(LS_ONBOARDING_FUNDED) === "true")
     }, [])
 
     const handleSpawn = async () => {
-        if (!opponent) return;
+        if (!opponent.trim()) return;
         try {
-            const res = await spawnGame(opponent);
+            const tokenConfig = STAKE_TOKEN_OPTIONS[stakeToken]
+            let res: Awaited<ReturnType<typeof spawnGame>> | Awaited<ReturnType<typeof spawnGameWithStake>>
+
+            if (isStakedMatch) {
+                const token = getStakeToken(stakeToken)
+                if (!token || !tokenConfig.address) {
+                    toast({
+                        title: "Token Not Configured",
+                        description: `Set NEXT_PUBLIC_SEPOLIA_${stakeToken}_TOKEN_ADDRESS before creating staked games.`,
+                        variant: "destructive",
+                    })
+                    return
+                }
+
+                let stakeAmountValue: Amount
+                try {
+                    stakeAmountValue = Amount.parse(stakeAmount, token)
+                } catch (error) {
+                    toast({
+                        title: "Invalid Stake Amount",
+                        description: `Enter a valid ${tokenConfig.label} amount with up to ${tokenConfig.decimals} decimals.`,
+                        variant: "destructive",
+                    })
+                    return
+                }
+
+                if (stakeAmountValue.toBase() <= BigInt(0)) {
+                    toast({
+                      title: "Invalid Stake Amount",
+                      description: "Stake amount must be greater than zero.",
+                      variant: "destructive",
+                    })
+                    return
+                }
+
+                if (!starkzapWallet) {
+                    toast({
+                      title: "Wallet Not Ready",
+                      description: "Connect wallet and retry to approve stake amount.",
+                      variant: "destructive",
+                    })
+                    return
+                }
+
+                toast({
+                  title: "Approving Stake Token…",
+                  description: `Approving ${tokenConfig.label} spend for match escrow.`,
+                })
+
+                const approveTx = await starkzapWallet
+                  .tx()
+                  .approve(token, fromAddress(SEPOLIA_CONFIG.ACTIONS_ADDRESS), stakeAmountValue)
+                  .send()
+                await approveTx.wait()
+
+                res = await spawnGameWithStake(
+                  opponent.trim(),
+                  token.address,
+                  stakeAmountValue.toBase().toString()
+                )
+            } else {
+                res = await spawnGame(opponent.trim())
+            }
+
             if (res && res.receipt) {
                  // Event parsing logic from original lobby.tsx
                  // Or we just wait for it to appear in "My Games" list?
@@ -160,7 +305,12 @@ function LobbyInterface({ onJoin }: { onJoin: (id: number) => void }) {
                 }
 
                 if (newId) {
-                    toast({ title: "Game Created!", description: `Game #${newId} spawned.` });
+                    toast({
+                      title: "Game Created!",
+                      description: isStakedMatch
+                        ? `Game #${newId} spawned with ${stakeAmount} ${tokenConfig.label} stake per player.`
+                        : `Game #${newId} spawned.`,
+                    });
                     onJoin(newId);
                 } else {
                     toast({ title: "Game Created", description: "Check 'My Games' tab." });
@@ -232,9 +382,59 @@ function LobbyInterface({ onJoin }: { onJoin: (id: number) => void }) {
                             <p className="text-xs text-muted-foreground">Share your address with a friend, then paste theirs here.</p>
                         </div>
 
-                        <Button className="w-full" onClick={handleSpawn} disabled={!opponent || isLoading || !fundedChecklist}>
+                        <div className="space-y-3 rounded-lg border border-border/60 bg-muted/20 p-3 text-left">
+                          <label className="flex items-center gap-2 text-sm font-medium">
+                            <input
+                              type="checkbox"
+                              checked={isStakedMatch}
+                              onChange={(e) => setIsStakedMatch(e.target.checked)}
+                              className="h-4 w-4 rounded border-border bg-background"
+                            />
+                            Enable staked match
+                          </label>
+
+                          {isStakedMatch && (
+                            <div className="space-y-2">
+                              <div className="grid grid-cols-2 gap-2">
+                                <select
+                                  value={stakeToken}
+                                  onChange={(e) => setStakeToken(e.target.value as StakeTokenSymbol)}
+                                  className="h-10 rounded-md border border-input bg-background px-3 text-sm"
+                                >
+                                  <option value="STRK">STARK</option>
+                                  <option value="WBTC">BTC</option>
+                                </select>
+                                <Input
+                                  value={stakeAmount}
+                                  onChange={(e) => setStakeAmount(e.target.value)}
+                                  placeholder="0.10"
+                                  inputMode="decimal"
+                                />
+                              </div>
+                              <p className="text-xs text-muted-foreground">
+                                Each player stakes this amount. Winner receives the full pot.
+                              </p>
+                              {!getStakeToken(stakeToken) && (
+                                <p className="text-xs text-amber-300">
+                                  Configure token address: NEXT_PUBLIC_SEPOLIA_{stakeToken}_TOKEN_ADDRESS
+                                </p>
+                              )}
+                            </div>
+                          )}
+                        </div>
+
+                        <Button
+                          className="w-full"
+                          onClick={handleSpawn}
+                          disabled={
+                            !opponent.trim() ||
+                            isLoading ||
+                            !fundedChecklist ||
+                            (isStakedMatch && !getStakeToken(stakeToken))
+                          }
+                        >
                             {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Sword className="mr-2 h-4 w-4" />}
-                            Spawn Game
+                            {isStakedMatch ? "Spawn Staked Game" : "Spawn Game"}
                         </Button>
                         {!fundedChecklist && (
                           <p className="text-xs text-amber-300">

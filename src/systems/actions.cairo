@@ -3,6 +3,11 @@ use starknet::ContractAddress;
 #[starknet::interface]
 pub trait IActions<T> {
     fn spawn_game(ref self: T, opponent: ContractAddress);
+    fn spawn_game_with_stake(
+        ref self: T, opponent: ContractAddress, stake_token: ContractAddress, stake_amount: u128,
+    );
+    fn lock_stake(ref self: T, game_id: u32);
+    fn cancel_staked_game(ref self: T, game_id: u32);
     fn commit_board(ref self: T, game_id: u32, merkle_root: felt252);
     fn commit_attack(ref self: T, game_id: u32, attack_hash: felt252);
     fn reveal_attack(ref self: T, game_id: u32, x: u8, y: u8, reveal_nonce: felt252);
@@ -19,12 +24,21 @@ pub trait IActions<T> {
     fn check_hits_taken(self: @T, game_id: u32) -> u8;
 }
 
+#[starknet::interface]
+pub trait IERC20<T> {
+    fn transfer_from(
+        ref self: T, sender: ContractAddress, recipient: ContractAddress, amount: u256,
+    ) -> bool;
+    fn transfer(ref self: T, recipient: ContractAddress, amount: u256) -> bool;
+}
+
 #[dojo::contract]
 pub mod Actions {
-    use super::IActions;
+    use super::{IActions, IERC20Dispatcher, IERC20DispatcherTrait};
 
     use starknet::{
         ContractAddress, contract_address_const, get_block_timestamp, get_caller_address,
+        get_contract_address,
     };
 
     use alexandria_merkle_tree::merkle_tree::poseidon::PoseidonHasherImpl;
@@ -52,6 +66,11 @@ pub mod Actions {
         pub winner: ContractAddress,
         pub last_action: u64,
         pub moves_count: u32,
+        pub stake_token: ContractAddress,
+        pub stake_amount: u128,
+        pub stake_locked_p1: bool,
+        pub stake_locked_p2: bool,
+        pub stake_settled: bool,
     }
 
     #[derive(Copy, Drop, Serde)]
@@ -102,12 +121,32 @@ pub mod Actions {
         pub reason: felt252, // 'destruction' or 'timeout'
     }
 
+    #[derive(Copy, Drop, Serde)]
+    #[dojo::event]
+    pub struct stake_locked {
+        #[key]
+        pub game_id: u32,
+        pub player: ContractAddress,
+        pub token: ContractAddress,
+        pub amount: u128,
+    }
+
+    #[derive(Copy, Drop, Serde)]
+    #[dojo::event]
+    pub struct stake_settled {
+        #[key]
+        pub game_id: u32,
+        pub winner: ContractAddress,
+        pub token: ContractAddress,
+        pub amount_per_player: u128,
+    }
+
     #[abi(embed_v0)]
     impl ActionImpl of IActions<ContractState> {
         fn spawn_game(ref self: ContractState, opponent: ContractAddress) {
             let mut world = self.world_defalt();
-
             let caller = get_caller_address();
+            let now = get_block_timestamp();
 
             let mut counter: GameCounter = world.read_model(1);
             let new_game_id = counter.count + 1;
@@ -119,8 +158,13 @@ pub mod Actions {
                 turn: caller,
                 state: 0,
                 winner: contract_address_const::<0>(),
-                last_action: get_block_timestamp(),
+                last_action: now,
                 moves_count: 0,
+                stake_token: contract_address_const::<0>(),
+                stake_amount: 0_u128,
+                stake_locked_p1: false,
+                stake_locked_p2: false,
+                stake_settled: true,
             };
 
             counter.count = new_game_id;
@@ -135,8 +179,162 @@ pub mod Actions {
                     turn: caller,
                     state: 0,
                     winner: contract_address_const::<0>(),
-                    last_action: get_block_timestamp(),
+                    last_action: now,
                     moves_count: 0,
+                    stake_token: contract_address_const::<0>(),
+                    stake_amount: 0_u128,
+                    stake_locked_p1: false,
+                    stake_locked_p2: false,
+                    stake_settled: true,
+                },
+            );
+        }
+
+        fn spawn_game_with_stake(
+            ref self: ContractState,
+            opponent: ContractAddress,
+            stake_token: ContractAddress,
+            stake_amount: u128,
+        ) {
+            let mut world = self.world_defalt();
+            let caller = get_caller_address();
+            let now = get_block_timestamp();
+
+            assert!(stake_amount > 0_u128, "Invalid stake amount");
+            assert!(stake_token != contract_address_const::<0>(), "Invalid stake token");
+
+            pull_stake(caller, stake_token, stake_amount);
+
+            let mut counter: GameCounter = world.read_model(1);
+            let new_game_id = counter.count + 1;
+
+            let new_game: Game = Game {
+                game_id: new_game_id,
+                player_1: caller,
+                player_2: opponent,
+                turn: caller,
+                state: 0,
+                winner: contract_address_const::<0>(),
+                last_action: now,
+                moves_count: 0,
+                stake_token,
+                stake_amount,
+                stake_locked_p1: true,
+                stake_locked_p2: false,
+                stake_settled: false,
+            };
+
+            counter.count = new_game_id;
+            world.write_model(@counter);
+            world.write_model(@new_game);
+
+            world.emit_event(
+                @game_spawned {
+                    game_id: new_game_id,
+                    player_1: caller,
+                    player_2: opponent,
+                    turn: caller,
+                    state: 0,
+                    winner: contract_address_const::<0>(),
+                    last_action: now,
+                    moves_count: 0,
+                    stake_token,
+                    stake_amount,
+                    stake_locked_p1: true,
+                    stake_locked_p2: false,
+                    stake_settled: false,
+                },
+            );
+            world.emit_event(
+                @stake_locked {
+                    game_id: new_game_id,
+                    player: caller,
+                    token: stake_token,
+                    amount: stake_amount,
+                },
+            );
+        }
+
+        fn lock_stake(ref self: ContractState, game_id: u32) {
+            let mut world = self.world_defalt();
+            let caller = get_caller_address();
+            let mut game: Game = world.read_model(game_id);
+
+            assert!(game.state == 0, "Game is not in setup phase");
+            assert!(game.stake_amount > 0_u128, "Game has no stake");
+            assert!(
+                game.player_1 == caller || game.player_2 == caller, "You are not in this game",
+            );
+
+            if caller == game.player_1 {
+                assert!(game.stake_locked_p1 == false, "Stake already locked");
+                pull_stake(caller, game.stake_token, game.stake_amount);
+                game.stake_locked_p1 = true;
+            } else {
+                assert!(game.stake_locked_p2 == false, "Stake already locked");
+                pull_stake(caller, game.stake_token, game.stake_amount);
+                game.stake_locked_p2 = true;
+            }
+
+            game.last_action = get_block_timestamp();
+            world.write_model(@game);
+
+            world.emit_event(
+                @stake_locked {
+                    game_id,
+                    player: caller,
+                    token: game.stake_token,
+                    amount: game.stake_amount,
+                },
+            );
+        }
+
+        fn cancel_staked_game(ref self: ContractState, game_id: u32) {
+            let mut world = self.world_defalt();
+            let caller = get_caller_address();
+            let mut game: Game = world.read_model(game_id);
+
+            assert!(game.state == 0, "Game is not in setup phase");
+            assert!(game.stake_amount > 0_u128, "Game has no stake");
+            assert!(game.winner == contract_address_const::<0>(), "Game is over");
+            assert!(
+                game.player_1 == caller || game.player_2 == caller, "You are not in this game",
+            );
+            assert!(game.stake_locked_p1 && game.stake_locked_p2, "Both stakes not locked");
+            assert!(has_timed_out(game.last_action, get_block_timestamp()), "Wait for timeout");
+
+            let p1_commitment: BoardCommitment = world.read_model((game_id, game.player_1));
+            let p2_commitment: BoardCommitment = world.read_model((game_id, game.player_2));
+            assert!(
+                p1_commitment.is_committed == false && p2_commitment.is_committed == false,
+                "Board already committed",
+            );
+
+            let erc20 = IERC20Dispatcher { contract_address: game.stake_token };
+            let amount = to_u256(game.stake_amount);
+
+            let refunded_p1 = erc20.transfer(game.player_1, amount);
+            assert!(refunded_p1, "Stake refund failed");
+            let refunded_p2 = erc20.transfer(game.player_2, amount);
+            assert!(refunded_p2, "Stake refund failed");
+
+            game.state = 2;
+            game.stake_settled = true;
+            world.write_model(@game);
+
+            world.emit_event(
+                @stake_settled {
+                    game_id,
+                    winner: contract_address_const::<0>(),
+                    token: game.stake_token,
+                    amount_per_player: game.stake_amount,
+                },
+            );
+            world.emit_event(
+                @game_ended {
+                    game_id,
+                    winner: contract_address_const::<0>(),
+                    reason: 'cancelled',
                 },
             );
         }
@@ -151,6 +349,14 @@ pub mod Actions {
             assert!(
                 game.player_1 == caller || game.player_2 == caller, "You are not in this game",
             );
+
+            if game.stake_amount > 0_u128 {
+                if caller == game.player_1 {
+                    assert!(game.stake_locked_p1, "Stake not locked");
+                } else {
+                    assert!(game.stake_locked_p2, "Stake not locked");
+                }
+            }
 
             let mut opponent_address = game.player_2;
             if caller == game.player_2 {
@@ -170,10 +376,11 @@ pub mod Actions {
             world.emit_event(@board_committed { game_id, player: caller, root: merkle_root });
 
             let opponent_commitment: BoardCommitment = world.read_model((game_id, opponent_address));
+            game.last_action = get_block_timestamp();
             if opponent_commitment.is_committed {
                 game.state = 1;
-                world.write_model(@game);
             }
+            world.write_model(@game);
         }
 
         fn commit_attack(ref self: ContractState, game_id: u32, attack_hash: felt252) {
@@ -317,6 +524,7 @@ pub mod Actions {
                 if defender_commit.hits_taken >= 10 {
                     game.state = 2;
                     game.winner = attacker_address;
+                    settle_stake_if_needed(ref world, ref game);
                     world.emit_event(
                         @game_ended { game_id, winner: attacker_address, reason: 'destruction' },
                     );
@@ -335,17 +543,43 @@ pub mod Actions {
             let caller = get_caller_address();
             let mut game: Game = world.read_model(game_id);
 
-            assert!(game.state == 1, "Game is not active");
+            assert!(game.state == 0 || game.state == 1, "Game is not claimable");
             assert!(game.winner == contract_address_const::<0>(), "Game is over");
 
             assert!(has_timed_out(game.last_action, get_block_timestamp()), "Wait for timeout");
-            assert!(game.turn != caller, "It's your turn to make a move");
 
+            if game.state == 1 {
+                assert!(game.turn != caller, "It's your turn to make a move");
+                game.state = 2;
+                game.winner = caller;
+                settle_stake_if_needed(ref world, ref game);
+                world.write_model(@game);
+                world.emit_event(@game_ended { game_id, winner: caller, reason: 'timeout' });
+                return;
+            }
+
+            assert!(game.stake_amount > 0_u128, "No staked setup timeout");
+            assert!(game.stake_locked_p1 && game.stake_locked_p2, "Both stakes not locked");
+
+            let p1_commitment: BoardCommitment = world.read_model((game_id, game.player_1));
+            let p2_commitment: BoardCommitment = world.read_model((game_id, game.player_2));
+            assert!(
+                p1_commitment.is_committed != p2_commitment.is_committed,
+                "No setup timeout winner",
+            );
+
+            let winner = if p1_commitment.is_committed {
+                game.player_1
+            } else {
+                game.player_2
+            };
+
+            assert!(winner == caller, "Only committed player can claim");
             game.state = 2;
-            game.winner = caller;
+            game.winner = winner;
+            settle_stake_if_needed(ref world, ref game);
             world.write_model(@game);
-
-            world.emit_event(@game_ended { game_id, winner: caller, reason: 'timeout' });
+            world.emit_event(@game_ended { game_id, winner, reason: 'setup_timeout' });
         }
 
         fn check_hits_taken(self: @ContractState, game_id: u32) -> u8 {
@@ -361,5 +595,42 @@ pub mod Actions {
         fn world_defalt(self: @ContractState) -> dojo::world::WorldStorage {
             self.world(@"dark_waters")
         }
+    }
+
+    fn to_u256(amount: u128) -> u256 {
+        u256 { low: amount, high: 0_u128 }
+    }
+
+    fn pull_stake(from: ContractAddress, token: ContractAddress, amount: u128) {
+        let erc20 = IERC20Dispatcher { contract_address: token };
+        let ok = erc20.transfer_from(from, get_contract_address(), to_u256(amount));
+        assert!(ok, "Stake transfer_from failed");
+    }
+
+    fn settle_stake_if_needed(ref world: dojo::world::WorldStorage, ref game: Game) {
+        if game.stake_amount == 0_u128 || game.stake_settled {
+            return;
+        }
+
+        assert!(game.winner != contract_address_const::<0>(), "Winner not set");
+        assert!(game.stake_locked_p1 && game.stake_locked_p2, "Both stakes not locked");
+
+        let erc20 = IERC20Dispatcher { contract_address: game.stake_token };
+        let amount = to_u256(game.stake_amount);
+
+        let paid_first = erc20.transfer(game.winner, amount);
+        assert!(paid_first, "Stake payout failed");
+        let paid_second = erc20.transfer(game.winner, amount);
+        assert!(paid_second, "Stake payout failed");
+
+        game.stake_settled = true;
+        world.emit_event(
+            @stake_settled {
+                game_id: game.game_id,
+                winner: game.winner,
+                token: game.stake_token,
+                amount_per_player: game.stake_amount,
+            },
+        );
     }
 }

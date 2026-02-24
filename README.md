@@ -83,6 +83,28 @@ Contract verifies:
 2. Merkle proof against defender commitment root
 3. updates attack record, hit count, turn state, and win state
 
+### Staked Match Flow (STRK / WBTC)
+
+Staking is optional per match and currently supports:
+
+1. `STRK` (Sepolia token from Starkzap token list)
+2. `WBTC` (configured by env var)
+
+Flow:
+
+1. Host creates either:
+   - `spawn_game(opponent)` for no stake
+   - `spawn_game_with_stake(opponent, stake_token, stake_amount)` for staked match
+2. Host stake is pulled during `spawn_game_with_stake`
+3. Opponent approves token then calls `lock_stake(game_id)`
+4. `commit_board` is blocked until each caller's stake is locked for staked games
+5. Winner settlement:
+   - destruction win and timeout win call internal stake settlement
+   - winner receives both stake amounts
+6. Setup timeout paths:
+   - one committed / one not committed: committed player can claim timeout win
+   - both locked, neither committed: either player can call `cancel_staked_game(game_id)` after timeout to refund both sides
+
 ## Contract Changes Walkthrough
 
 ### `src/models.cairo`
@@ -94,6 +116,12 @@ Added:
 2. `PendingAttack`
    - stores exactly one unresolved attack per game
    - enforces reveal-to-attack matching invariants
+3. `Game` staking metadata:
+   - `stake_token`
+   - `stake_amount`
+   - `stake_locked_p1`
+   - `stake_locked_p2`
+   - `stake_settled`
 
 ### `src/systems/actions.cairo`
 
@@ -102,14 +130,24 @@ Key upgrades:
 1. New entrypoints:
    - `commit_attack`
    - `reveal_attack`
-2. `reveal(...)` now uses `cell_nonce` semantics (per-cell nonce), not global board salt
-3. Strict pending attack checks:
+   - `spawn_game_with_stake`
+   - `lock_stake`
+   - `cancel_staked_game`
+2. New stake events:
+   - `stake_locked`
+   - `stake_settled`
+3. `reveal(...)` now uses `cell_nonce` semantics (per-cell nonce), not global board salt
+4. Strict pending attack checks:
    - no second attack can be progressed before pending one is resolved
    - defender reveal must match pending `(attacker, x, y)`
-4. `attack_revealed` event now includes `attacker`
+5. `attack_revealed` event now includes `attacker`
    - frontend matching is deterministic even under repeated coordinates
-5. `game_ended` now emitted for destruction wins and timeout wins
-6. Timeout logic uses shared helper (`has_timed_out`)
+6. `game_ended` now emitted for destruction wins, timeout wins, setup-timeout wins, and stake cancellation
+7. Timeout logic uses shared helper (`has_timed_out`)
+8. Staked setup behavior:
+   - stake lock required before commitment
+   - setup timeout supports committed-player claim
+   - setup cancel refunds if neither side committed
 
 ### `src/utils.cairo` (new)
 
@@ -132,6 +170,9 @@ Added:
 
 1. `commitAttack(gameId, attackHash)`
 2. `revealAttack(gameId, x, y, revealNonce)`
+3. `spawnGameWithStake(opponent, stakeToken, stakeAmount)`
+4. `lockStake(gameId)`
+5. `cancelStakedGame(gameId)`
 
 Updated:
 
@@ -146,6 +187,9 @@ Policies now include:
 
 1. `commit_attack`
 2. `reveal_attack`
+3. `spawn_game_with_stake`
+4. `lock_stake`
+5. `cancel_staked_game`
 
 (`attack` policy removed from gameplay flow)
 
@@ -186,6 +230,9 @@ Changes:
 1. generates master secret (instead of global board salt)
 2. stores encrypted secrets before commit tx
 3. copies recovery package to clipboard after successful commit
+4. for staked matches:
+   - approves stake token allowance via Starkzap tx builder
+   - locks stake before committing board
 
 ### Combat Flow
 
@@ -241,6 +288,10 @@ Changes:
 1. first-time funding checklist card in host tab
 2. spawn button gated until checklist is marked complete
 3. explicit Sepolia STRK funding guidance in-app
+4. optional staked lobby creation:
+   - token selector (`STRK` / `WBTC`)
+   - amount input
+5. setup-phase cancellation CTA for stalled staked setup (after timeout)
 
 File: `dark-waters-layout/components/wallet-status.tsx`
 
@@ -308,11 +359,22 @@ scarb test
 
 ### Frontend (Sepolia)
 
+Set token env vars in `dark-waters-layout/.env.local`:
+
+```bash
+NEXT_PUBLIC_SEPOLIA_STRK_TOKEN_ADDRESS=0x...
+NEXT_PUBLIC_SEPOLIA_WBTC_TOKEN_ADDRESS=0x...
+```
+
+Then run:
+
 ```bash
 cd dark-waters-layout
 npm install
 npm run dev
 ```
+
+If you change env vars, restart the dev server.
 
 ### Local Dojo stack with Docker
 
@@ -335,6 +397,19 @@ sozo build
 sozo migrate
 torii --world <WORLD_ADDRESS> --http.cors_origins "*"
 ```
+
+## Deployment Notes For Staking Upgrade
+
+Staking requires the updated `Actions` contract to be migrated on-chain.
+
+After migration:
+
+1. update `dark-waters-layout/src/config/sepolia-config.ts`:
+   - `WORLD_ADDRESS`
+   - `ACTIONS_ADDRESS`
+   - `DEPLOYED_BLOCK`
+2. confirm `.env.local` token addresses are set (`STRK`, `WBTC`)
+3. restart frontend
 
 ## Validation Notes From This Upgrade Pass
 
@@ -369,7 +444,10 @@ Known environment limitation in this workspace:
 |  |- hooks/
 |  `- src/
 |     |- hooks/useGameActions.ts
+|     |- lib/stake-token.ts
+|     |- lib/starkzap-wallet-adapter.ts
 |     `- utils/
+|        |- token-amount.ts
 |        |- merkle.ts
 |        |- secret-storage.ts
 |        |- event-checkpoint.ts

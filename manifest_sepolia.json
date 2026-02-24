@@ -34,12 +34,15 @@
   "contracts": [
     {
       "address": "0x18f4e1f102a3a2205ae200509ac059c432b545819324faf50a7412e1f652cce",
-      "class_hash": "0x1b89e5316485f4a8ad9d0476064ee4b6334c53b7eb498abf45de0b518e2ac21",
+      "class_hash": "0x1799ee839f8aecbc3b6dfc7c80f05739a9d4ce538b55edec6a1b7595b794d56",
       "init_calldata": [],
       "tag": "dark_waters-Actions",
       "selector": "0x7f689e2d818b18c76ed7a72d8b4bf448736c3dcbff39d1a36ed05da4fc67e00",
       "systems": [
         "spawn_game",
+        "spawn_game_with_stake",
+        "lock_stake",
+        "cancel_staked_game",
         "commit_board",
         "commit_attack",
         "reveal_attack",
@@ -193,9 +196,34 @@
           "name": "moves_count",
           "type": "core::integer::u32",
           "key": false
+        },
+        {
+          "name": "stake_token",
+          "type": "core::starknet::contract_address::ContractAddress",
+          "key": false
+        },
+        {
+          "name": "stake_amount",
+          "type": "core::integer::u128",
+          "key": false
+        },
+        {
+          "name": "stake_locked_p1",
+          "type": "core::bool",
+          "key": false
+        },
+        {
+          "name": "stake_locked_p2",
+          "type": "core::bool",
+          "key": false
+        },
+        {
+          "name": "stake_settled",
+          "type": "core::bool",
+          "key": false
         }
       ],
-      "class_hash": "0x12fba5fbaacf73acb3a9b8b7d0e42c0ea9848e4d9785d69dff0f50b3c9039d6",
+      "class_hash": "0x7f506696b4192ae95c29c1bd9ce9c5c569d8f893bc7f55d17101d852836dc9a",
       "tag": "dark_waters-Game",
       "selector": "0x5560feaf549a1c7dd3dc0c9e3b5e34e37692a677cad53095acff7f1593d9ba3"
     },
@@ -416,11 +444,90 @@
           "name": "moves_count",
           "type": "core::integer::u32",
           "key": false
+        },
+        {
+          "name": "stake_token",
+          "type": "core::starknet::contract_address::ContractAddress",
+          "key": false
+        },
+        {
+          "name": "stake_amount",
+          "type": "core::integer::u128",
+          "key": false
+        },
+        {
+          "name": "stake_locked_p1",
+          "type": "core::bool",
+          "key": false
+        },
+        {
+          "name": "stake_locked_p2",
+          "type": "core::bool",
+          "key": false
+        },
+        {
+          "name": "stake_settled",
+          "type": "core::bool",
+          "key": false
         }
       ],
-      "class_hash": "0xaf5be78d662718414016f707bf15c04b5fe5e3a1dcf14af0f4defda6bbde7b",
+      "class_hash": "0x50ee692fbff13a87177ad76d8a106e035f6c4e55478de2455842514c40a81fb",
       "tag": "dark_waters-game_spawned",
       "selector": "0x7003ad3d04ce3b53a28689df967350b9610b921088b7e4c6fa97cb34e892798"
+    },
+    {
+      "members": [
+        {
+          "name": "game_id",
+          "type": "core::integer::u32",
+          "key": true
+        },
+        {
+          "name": "player",
+          "type": "core::starknet::contract_address::ContractAddress",
+          "key": false
+        },
+        {
+          "name": "token",
+          "type": "core::starknet::contract_address::ContractAddress",
+          "key": false
+        },
+        {
+          "name": "amount",
+          "type": "core::integer::u128",
+          "key": false
+        }
+      ],
+      "class_hash": "0x1f4e7edecad895d4549d517da65acf736930b539029c59b2c9f91d451ec2aad",
+      "tag": "dark_waters-stake_locked",
+      "selector": "0x4071e5a6e765d679c678e233f496bbbe680e170f9a1c3cef2be0e88359bb27d"
+    },
+    {
+      "members": [
+        {
+          "name": "game_id",
+          "type": "core::integer::u32",
+          "key": true
+        },
+        {
+          "name": "winner",
+          "type": "core::starknet::contract_address::ContractAddress",
+          "key": false
+        },
+        {
+          "name": "token",
+          "type": "core::starknet::contract_address::ContractAddress",
+          "key": false
+        },
+        {
+          "name": "amount_per_player",
+          "type": "core::integer::u128",
+          "key": false
+        }
+      ],
+      "class_hash": "0x1030116f3a8251278b64a20c04463b88ce6ebacbcffba162e33d6f15981200d",
+      "tag": "dark_waters-stake_settled",
+      "selector": "0x78d7ac564c19c64b99ad685db3d561db171163e89bbcb6d9b2d822711d74701"
     }
   ],
   "external_contracts": [],
@@ -737,6 +844,26 @@
         {
           "name": "moves_count",
           "type": "core::integer::u32"
+        },
+        {
+          "name": "stake_token",
+          "type": "core::starknet::contract_address::ContractAddress"
+        },
+        {
+          "name": "stake_amount",
+          "type": "core::integer::u128"
+        },
+        {
+          "name": "stake_locked_p1",
+          "type": "core::bool"
+        },
+        {
+          "name": "stake_locked_p2",
+          "type": "core::bool"
+        },
+        {
+          "name": "stake_settled",
+          "type": "core::bool"
         }
       ]
     },
@@ -795,6 +922,26 @@
         {
           "name": "moves_count",
           "type": "core::integer::u32"
+        },
+        {
+          "name": "stake_token",
+          "type": "core::starknet::contract_address::ContractAddress"
+        },
+        {
+          "name": "stake_amount",
+          "type": "core::integer::u128"
+        },
+        {
+          "name": "stake_locked_p1",
+          "type": "core::bool"
+        },
+        {
+          "name": "stake_locked_p2",
+          "type": "core::bool"
+        },
+        {
+          "name": "stake_settled",
+          "type": "core::bool"
         }
       ]
     },
@@ -1102,6 +1249,18 @@
       "variants": []
     },
     {
+      "type": "event",
+      "name": "dark_waters::systems::actions::Actions::e_stake_locked::Event",
+      "kind": "enum",
+      "variants": []
+    },
+    {
+      "type": "event",
+      "name": "dark_waters::systems::actions::Actions::e_stake_settled::Event",
+      "kind": "enum",
+      "variants": []
+    },
+    {
       "type": "struct",
       "name": "dark_waters::systems::actions::Actions::game_ended",
       "members": [
@@ -1168,6 +1327,26 @@
         {
           "name": "moves_count",
           "type": "core::integer::u32"
+        },
+        {
+          "name": "stake_token",
+          "type": "core::starknet::contract_address::ContractAddress"
+        },
+        {
+          "name": "stake_amount",
+          "type": "core::integer::u128"
+        },
+        {
+          "name": "stake_locked_p1",
+          "type": "core::bool"
+        },
+        {
+          "name": "stake_locked_p2",
+          "type": "core::bool"
+        },
+        {
+          "name": "stake_settled",
+          "type": "core::bool"
         }
       ]
     },
@@ -1202,6 +1381,106 @@
         {
           "name": "moves_count",
           "type": "core::integer::u32"
+        },
+        {
+          "name": "stake_token",
+          "type": "core::starknet::contract_address::ContractAddress"
+        },
+        {
+          "name": "stake_amount",
+          "type": "core::integer::u128"
+        },
+        {
+          "name": "stake_locked_p1",
+          "type": "core::bool"
+        },
+        {
+          "name": "stake_locked_p2",
+          "type": "core::bool"
+        },
+        {
+          "name": "stake_settled",
+          "type": "core::bool"
+        }
+      ]
+    },
+    {
+      "type": "struct",
+      "name": "dark_waters::systems::actions::Actions::stake_locked",
+      "members": [
+        {
+          "name": "game_id",
+          "type": "core::integer::u32"
+        },
+        {
+          "name": "player",
+          "type": "core::starknet::contract_address::ContractAddress"
+        },
+        {
+          "name": "token",
+          "type": "core::starknet::contract_address::ContractAddress"
+        },
+        {
+          "name": "amount",
+          "type": "core::integer::u128"
+        }
+      ]
+    },
+    {
+      "type": "struct",
+      "name": "dark_waters::systems::actions::Actions::stake_lockedValue",
+      "members": [
+        {
+          "name": "player",
+          "type": "core::starknet::contract_address::ContractAddress"
+        },
+        {
+          "name": "token",
+          "type": "core::starknet::contract_address::ContractAddress"
+        },
+        {
+          "name": "amount",
+          "type": "core::integer::u128"
+        }
+      ]
+    },
+    {
+      "type": "struct",
+      "name": "dark_waters::systems::actions::Actions::stake_settled",
+      "members": [
+        {
+          "name": "game_id",
+          "type": "core::integer::u32"
+        },
+        {
+          "name": "winner",
+          "type": "core::starknet::contract_address::ContractAddress"
+        },
+        {
+          "name": "token",
+          "type": "core::starknet::contract_address::ContractAddress"
+        },
+        {
+          "name": "amount_per_player",
+          "type": "core::integer::u128"
+        }
+      ]
+    },
+    {
+      "type": "struct",
+      "name": "dark_waters::systems::actions::Actions::stake_settledValue",
+      "members": [
+        {
+          "name": "winner",
+          "type": "core::starknet::contract_address::ContractAddress"
+        },
+        {
+          "name": "token",
+          "type": "core::starknet::contract_address::ContractAddress"
+        },
+        {
+          "name": "amount_per_player",
+          "type": "core::integer::u128"
         }
       ]
     },
@@ -1216,6 +1495,50 @@
             {
               "name": "opponent",
               "type": "core::starknet::contract_address::ContractAddress"
+            }
+          ],
+          "outputs": [],
+          "state_mutability": "external"
+        },
+        {
+          "type": "function",
+          "name": "spawn_game_with_stake",
+          "inputs": [
+            {
+              "name": "opponent",
+              "type": "core::starknet::contract_address::ContractAddress"
+            },
+            {
+              "name": "stake_token",
+              "type": "core::starknet::contract_address::ContractAddress"
+            },
+            {
+              "name": "stake_amount",
+              "type": "core::integer::u128"
+            }
+          ],
+          "outputs": [],
+          "state_mutability": "external"
+        },
+        {
+          "type": "function",
+          "name": "lock_stake",
+          "inputs": [
+            {
+              "name": "game_id",
+              "type": "core::integer::u32"
+            }
+          ],
+          "outputs": [],
+          "state_mutability": "external"
+        },
+        {
+          "type": "function",
+          "name": "cancel_staked_game",
+          "inputs": [
+            {
+              "name": "game_id",
+              "type": "core::integer::u32"
             }
           ],
           "outputs": [],
@@ -3019,7 +3342,7 @@
       "inputs": [
         {
           "name": "event",
-          "type": "dark_waters::systems::actions::Actions::game_spawned"
+          "type": "dark_waters::systems::actions::Actions::stake_settled"
         }
       ],
       "outputs": [],
@@ -3038,7 +3361,7 @@
       "inputs": [
         {
           "name": "value",
-          "type": "dark_waters::systems::actions::Actions::game_spawnedValue"
+          "type": "dark_waters::systems::actions::Actions::stake_settledValue"
         }
       ],
       "outputs": [],

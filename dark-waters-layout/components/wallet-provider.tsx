@@ -23,6 +23,9 @@ const policies = {
       name: "Dark Waters Actions",
       methods: [
         { name: "Spawn Game", entrypoint: "spawn_game" },
+        { name: "Spawn Game With Stake", entrypoint: "spawn_game_with_stake" },
+        { name: "Lock Stake", entrypoint: "lock_stake" },
+        { name: "Cancel Staked Game", entrypoint: "cancel_staked_game" },
         { name: "Commit Board", entrypoint: "commit_board" },
         { name: "Commit Attack", entrypoint: "commit_attack" },
         { name: "Reveal Attack", entrypoint: "reveal_attack" },

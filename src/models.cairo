@@ -22,6 +22,13 @@ pub struct Game {
 
     //how many moves the game has
     pub moves_count: u32,
+
+    // staking metadata (optional; zero amount means no-stake game)
+    pub stake_token: ContractAddress,
+    pub stake_amount: u128,
+    pub stake_locked_p1: bool,
+    pub stake_locked_p2: bool,
+    pub stake_settled: bool,
 }
 
 #[derive(Copy, Drop, Serde, Debug)]

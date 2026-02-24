@@ -67,6 +67,15 @@ function getCoordinateLabel(row: number, col: number): string {
   return `${String.fromCharCode(65 + row)}${col + 1}`
 }
 
+function isZeroAddress(value: string): boolean {
+  try {
+    return BigInt(value) === BigInt(0)
+  } catch {
+    const normalized = value.toLowerCase()
+    return normalized === "0x0" || normalized === "0"
+  }
+}
+
 function countHitCells(grid: CombatCell[][]): number {
   let hits = 0
   for (const row of grid) {
@@ -116,7 +125,7 @@ export function useCombat() {
   const [targetGrid, setTargetGrid] = useState<CombatCell[][]>(createEmptyGrid)
   const [battleLog, setBattleLog] = useState<BattleLogEntry[]>([])
   const [pendingCell, setPendingCell] = useState<{ row: number; col: number } | null>(null)
-  const [gameOver, setGameOver] = useState<"win" | "lose" | null>(null)
+  const [gameOver, setGameOver] = useState<"win" | "lose" | "draw" | null>(null)
   const [isAwaitingTurnHandoff, setIsAwaitingTurnHandoff] = useState(false)
 
   const logIdRef = useRef(0)
@@ -204,9 +213,14 @@ export function useCombat() {
 
   useEffect(() => {
     if (!gameState) return
-    if (!gameState.isActive && gameState.winner) {
-      const isWin = BigInt(gameState.winner) === BigInt(address || "0x0")
-      setGameOver(isWin ? "win" : "lose")
+    if (!gameState.isActive) {
+      setIsPlayerTurn(false)
+      if (!gameState.winner || isZeroAddress(gameState.winner)) {
+        setGameOver("draw")
+      } else {
+        const isWin = BigInt(gameState.winner) === BigInt(address || "0x0")
+        setGameOver(isWin ? "win" : "lose")
+      }
     }
 
     if (gameState.isActive) {
