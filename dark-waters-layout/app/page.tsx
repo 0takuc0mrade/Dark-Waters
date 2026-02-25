@@ -122,6 +122,16 @@ export default function Page() {
             stakeTokenMeta?.option.decimals ?? 0
           )} ${stakeTokenMeta?.option.label ?? "TOKEN"}`
         : null
+    const stakeStatusText =
+      gameState?.isStakedMatch
+        ? gameState.stakeSettled
+          ? "Stake Settled"
+          : gameState.myStakeLocked && gameState.opponentStakeLocked
+            ? "Stakes Locked"
+            : "Stake Lock Pending"
+        : null
+    const stakeStatusVariant: "default" | "secondary" =
+      gameState?.stakeSettled ? "default" : "secondary"
 
     if (gameState?.phase === "Setup") {
         if (gameState.isMyCommit) {
@@ -190,6 +200,7 @@ export default function Page() {
                 <span className="font-bold text-foreground">Dark Waters</span>
                 <Badge variant={badgeVariant}>Game #{gameId} • {statusText}</Badge>
                 {stakeDisplay && <Badge variant="outline">Stake: {stakeDisplay}</Badge>}
+                {stakeStatusText && <Badge variant={stakeStatusVariant}>{stakeStatusText}</Badge>}
              </div>
              <div className="flex items-center gap-2">
                 {gameState?.isActive && (
