@@ -26,7 +26,7 @@ const STAKE_LOCKED_EVENT_HASH =
   "0x04071e5a6e765d679c678e233f496bbbe680e170f9a1c3cef2be0e88359bb27d"
 const STAKE_SETTLED_EVENT_HASH =
   "0x078d7ac564c19c64b99ad685db3d561db171163e89bbcb6d9b2d822711d74701"
-const CACHE_SCHEMA = "v5"
+const CACHE_SCHEMA = "v6"
 const DEPLOYMENT_SCOPE = `${SEPOLIA_CONFIG.WORLD_ADDRESS.toLowerCase()}:${SEPOLIA_CONFIG.DEPLOYED_BLOCK}`
 
 export type GamePhase = "Setup" | "Playing" | "Finished"
@@ -234,8 +234,6 @@ function deriveState(gameId: number, address: string, cache: ParsedGameCache): G
   let isActive = true
   let winner: string | null = null
   let currentTurn = player1
-  let p1Hits = 0
-  let p2Hits = 0
 
   const orderedReveals = [...cache.reveals].sort((a, b) => {
     if (a.blockNumber !== b.blockNumber) return a.blockNumber - b.blockNumber
@@ -244,28 +242,10 @@ function deriveState(gameId: number, address: string, cache: ParsedGameCache): G
   })
 
   for (const reveal of orderedReveals) {
-    if (reveal.isHit) {
-      if (sameAddress(reveal.attacker, player1)) p1Hits += 1
-      else p2Hits += 1
-    }
-
     currentTurn = sameAddress(reveal.attacker, player1) ? player2 : player1
-
-    if (p1Hits >= 10) {
-      winner = player1
-      phase = "Finished"
-      isActive = false
-      break
-    }
-    if (p2Hits >= 10) {
-      winner = player2
-      phase = "Finished"
-      isActive = false
-      break
-    }
   }
 
-  if (cache.reveals.length > 0 && phase !== "Finished") {
+  if (cache.reveals.length > 0) {
     phase = "Playing"
   }
 

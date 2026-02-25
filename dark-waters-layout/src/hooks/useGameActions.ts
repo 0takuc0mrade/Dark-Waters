@@ -118,6 +118,11 @@ export const useGameActions = () => {
     [execute]
   )
 
+  const claimTimeoutWin = useCallback(
+    async (gameId: number) => execute("claim_timeout_win", [gameId]),
+    [execute]
+  )
+
   return {
     spawnGame,
     spawnGameWithStake,
@@ -127,6 +132,7 @@ export const useGameActions = () => {
     commitAttack,
     revealAttack,
     reveal,
+    claimTimeoutWin,
     isLoading,
     error,
   }

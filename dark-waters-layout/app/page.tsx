@@ -32,9 +32,10 @@ const LS_ONBOARDING_FUNDED = "dark-waters-onboarding-funded"
 
 export default function Page() {
   const { isConnected, address } = useWallet()
-  const { cancelStakedGame, isLoading: isCancellingStake } = useGameActions()
+  const { cancelStakedGame, claimTimeoutWin, isLoading: isActionLoading } = useGameActions()
   const { toast } = useToast()
   const [gameId, setGameId] = useState<number | null>(null)
+  const [isClaimingTimeout, setIsClaimingTimeout] = useState(false)
 
   // Hydrate gameId from localStorage
   useEffect(() => {
@@ -71,6 +72,30 @@ export default function Page() {
       })
     }
   }, [cancelStakedGame, gameId, toast])
+
+  const handleClaimTimeoutWin = useCallback(async () => {
+    if (!gameId) return
+    setIsClaimingTimeout(true)
+    try {
+      const result = await claimTimeoutWin(gameId)
+      if (!result) {
+        throw new Error("Connect wallet before submitting timeout claim.")
+      }
+      toast({
+        title: "Timeout Claim Submitted",
+        description:
+          "If timeout conditions are met on-chain, the match will finalize and stake will settle.",
+      })
+    } catch (error) {
+      toast({
+        title: "Timeout Claim Failed",
+        description: error instanceof Error ? error.message : "Transaction failed.",
+        variant: "destructive",
+      })
+    } finally {
+      setIsClaimingTimeout(false)
+    }
+  }, [claimTimeoutWin, gameId, toast])
 
   if (gameId) {
     // Only show full-page loader on the very first load (no state yet).
@@ -138,9 +163,9 @@ export default function Page() {
                       size="sm"
                       className="mt-2"
                       onClick={handleCancelStakedGame}
-                      disabled={isCancellingStake}
+                      disabled={isActionLoading}
                     >
-                      {isCancellingStake && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                      {isActionLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                       Cancel Staked Match (After Timeout)
                     </Button>
                   </div>
@@ -166,10 +191,23 @@ export default function Page() {
                 <Badge variant={badgeVariant}>Game #{gameId} • {statusText}</Badge>
                 {stakeDisplay && <Badge variant="outline">Stake: {stakeDisplay}</Badge>}
              </div>
-             <Button variant="ghost" size="sm" onClick={handleExitGame} className="text-muted-foreground hover:text-destructive">
-                <LogOut className="h-4 w-4 mr-2" />
-                Exit to Lobby
-             </Button>
+             <div className="flex items-center gap-2">
+                {gameState?.isActive && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleClaimTimeoutWin}
+                    disabled={isClaimingTimeout}
+                  >
+                    {isClaimingTimeout && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                    Claim Timeout Win
+                  </Button>
+                )}
+                <Button variant="ghost" size="sm" onClick={handleExitGame} className="text-muted-foreground hover:text-destructive">
+                  <LogOut className="h-4 w-4 mr-2" />
+                  Exit to Lobby
+                </Button>
+             </div>
         </div>
         {content}
       </div>
