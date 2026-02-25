@@ -214,13 +214,15 @@ function LobbyInterface({ onJoin }: { onJoin: (id: number) => void }) {
     const [isStakedMatch, setIsStakedMatch] = useState(false)
     const [stakeToken, setStakeToken] = useState<StakeTokenSymbol>("STRK")
     const [stakeAmount, setStakeAmount] = useState("0.10")
+    const [isSpawning, setIsSpawning] = useState(false)
 
     useEffect(() => {
         setFundedChecklist(localStorage.getItem(LS_ONBOARDING_FUNDED) === "true")
     }, [])
 
     const handleSpawn = async () => {
-        if (!opponent.trim()) return;
+        if (!opponent.trim() || isSpawning) return;
+        setIsSpawning(true)
         try {
             const tokenConfig = STAKE_TOKEN_OPTIONS[stakeToken]
             let res: Awaited<ReturnType<typeof spawnGame>> | Awaited<ReturnType<typeof spawnGameWithStake>>
@@ -318,7 +320,14 @@ function LobbyInterface({ onJoin }: { onJoin: (id: number) => void }) {
                 }
             }
         } catch (e: any) {
-            toast({ title: "Error", description: e.message, variant: "destructive" });
+            const rawMessage = e?.message ?? "Transaction failed."
+            const description =
+              rawMessage.includes("u256_sub Overflow")
+                ? "Stake transfer failed due to insufficient token balance/allowance. Also avoid repeated spawn clicks while approval is pending."
+                : rawMessage
+            toast({ title: "Error", description, variant: "destructive" });
+        } finally {
+            setIsSpawning(false)
         }
     }
 
@@ -429,11 +438,12 @@ function LobbyInterface({ onJoin }: { onJoin: (id: number) => void }) {
                           disabled={
                             !opponent.trim() ||
                             isLoading ||
+                            isSpawning ||
                             !fundedChecklist ||
                             (isStakedMatch && !getStakeToken(stakeToken))
                           }
                         >
-                            {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Sword className="mr-2 h-4 w-4" />}
+                            {isLoading || isSpawning ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Sword className="mr-2 h-4 w-4" />}
                             {isStakedMatch ? "Spawn Staked Game" : "Spawn Game"}
                         </Button>
                         {!fundedChecklist && (
