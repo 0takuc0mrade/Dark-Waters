@@ -76,6 +76,14 @@ function isZeroAddress(value: string): boolean {
   }
 }
 
+function isSameAddress(left: string, right: string): boolean {
+  try {
+    return BigInt(left) === BigInt(right)
+  } catch {
+    return left.toLowerCase() === right.toLowerCase()
+  }
+}
+
 function countHitCells(grid: CombatCell[][]): number {
   let hits = 0
   for (const row of grid) {
@@ -218,7 +226,7 @@ export function useCombat() {
       if (!gameState.winner || isZeroAddress(gameState.winner)) {
         setGameOver("draw")
       } else {
-        const isWin = BigInt(gameState.winner) === BigInt(address || "0x0")
+        const isWin = isSameAddress(gameState.winner, address || "0x0")
         setGameOver(isWin ? "win" : "lose")
       }
     }
