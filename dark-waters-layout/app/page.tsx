@@ -132,6 +132,10 @@ export default function Page() {
         : null
     const stakeStatusVariant: "default" | "secondary" =
       gameState?.stakeSettled ? "default" : "secondary"
+    const payoutTxHash = gameState?.stakeSettlementTxHash ?? null
+    const payoutTxUrl = payoutTxHash
+      ? `https://sepolia.voyager.online/tx/${payoutTxHash}`
+      : null
 
     if (gameState?.phase === "Setup") {
         if (gameState.isMyCommit) {
@@ -201,6 +205,13 @@ export default function Page() {
                 <Badge variant={badgeVariant}>Game #{gameId} • {statusText}</Badge>
                 {stakeDisplay && <Badge variant="outline">Stake: {stakeDisplay}</Badge>}
                 {stakeStatusText && <Badge variant={stakeStatusVariant}>{stakeStatusText}</Badge>}
+                {payoutTxUrl && (
+                  <a href={payoutTxUrl} target="_blank" rel="noopener noreferrer">
+                    <Badge variant="outline" className="hover:bg-accent/40 cursor-pointer">
+                      Payout Tx
+                    </Badge>
+                  </a>
+                )}
              </div>
              <div className="flex items-center gap-2">
                 {gameState?.isActive && (

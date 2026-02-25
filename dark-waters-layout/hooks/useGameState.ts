@@ -26,7 +26,7 @@ const STAKE_LOCKED_EVENT_HASH =
   "0x04071e5a6e765d679c678e233f496bbbe680e170f9a1c3cef2be0e88359bb27d"
 const STAKE_SETTLED_EVENT_HASH =
   "0x078d7ac564c19c64b99ad685db3d561db171163e89bbcb6d9b2d822711d74701"
-const CACHE_SCHEMA = "v6"
+const CACHE_SCHEMA = "v7"
 const DEPLOYMENT_SCOPE = `${SEPOLIA_CONFIG.WORLD_ADDRESS.toLowerCase()}:${SEPOLIA_CONFIG.DEPLOYED_BLOCK}`
 
 export type GamePhase = "Setup" | "Playing" | "Finished"
@@ -49,6 +49,7 @@ export interface GameState {
   myStakeLocked: boolean
   opponentStakeLocked: boolean
   stakeSettled: boolean
+  stakeSettlementTxHash: string | null
 }
 
 interface ParsedReveal {
@@ -83,6 +84,7 @@ interface ParsedGameCache {
   ended: ParsedEndState | null
   stakeLockedPlayers: string[]
   stakeSettled: boolean
+  stakeSettlementTxHash: string | null
 }
 
 function sameAddress(a: string, b: string): boolean {
@@ -147,6 +149,7 @@ function loadCache(gameId: number, address: string): ParsedGameCache {
       ended: null,
       stakeLockedPlayers: [],
       stakeSettled: false,
+      stakeSettlementTxHash: null,
     }
   }
   try {
@@ -201,6 +204,10 @@ function loadCache(gameId: number, address: string): ParsedGameCache {
       ended,
       stakeLockedPlayers: Array.isArray(parsed.stakeLockedPlayers) ? parsed.stakeLockedPlayers : [],
       stakeSettled: Boolean(parsed.stakeSettled),
+      stakeSettlementTxHash:
+        typeof parsed.stakeSettlementTxHash === "string" && parsed.stakeSettlementTxHash.length > 0
+          ? parsed.stakeSettlementTxHash
+          : null,
     }
   } catch {
     return {
@@ -210,6 +217,7 @@ function loadCache(gameId: number, address: string): ParsedGameCache {
       ended: null,
       stakeLockedPlayers: [],
       stakeSettled: false,
+      stakeSettlementTxHash: null,
     }
   }
 }
@@ -290,6 +298,7 @@ function deriveState(gameId: number, address: string, cache: ParsedGameCache): G
     myStakeLocked,
     opponentStakeLocked,
     stakeSettled,
+    stakeSettlementTxHash: cache.stakeSettlementTxHash,
   }
 }
 
@@ -405,6 +414,9 @@ export const useGameState = (gameId: number | null) => {
         await syncOne(STAKE_SETTLED_EVENT_HASH, (event) => {
           if (!event.data || event.data.length < 6 || Number(event.data[1]) !== gameId) return
           cache.stakeSettled = true
+          if (typeof event.transaction_hash === "string" && event.transaction_hash.length > 0) {
+            cache.stakeSettlementTxHash = event.transaction_hash
+          }
         })
 
         saveCache(gameId, address, cache)
