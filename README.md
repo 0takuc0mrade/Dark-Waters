@@ -1,372 +1,84 @@
 # Dark Waters
 
-Dark Waters is an on-chain, turn-based naval strategy game built with Dojo and Starknet.
-Two players commit hidden boards, attack each other, and prove hit/miss outcomes against committed data.
-Core design concept: **Fog of War**. Opponents cannot see each other's board state or attack intent until protocol-defined reveal steps.
+Dark Waters is a turn-based, on-chain naval strategy game on Starknet (Dojo).
+Players commit hidden fleets, fire with commit-reveal attacks, and resolve hits/misses with Merkle proofs.
 
-I ran internal playtest sessions with other devs on Sepolia, collected their gameplay and reliability feedback, and used that feedback to drive this upgrade pass.
+Live app: https://dark-waters-m2fn.vercel.app/
 
-## Judge Snapshot
+## What Matters
 
-1. Fog of War by design: both board state and attack intent stay hidden until reveal.
-2. Verifiable fairness: hit/miss outcomes are proven against committed board data.
-3. Hardened secret handling: board secrets are encrypted at rest with recovery support.
-4. Robust sync model: replay-safe event processing with checkpointed incremental indexing.
-5. Practical player UX: onboarding checklist, wallet utilities, and combat sync diagnostics.
+- Fog of war: fleets stay hidden until protocol-valid reveals.
+- Verifiable fairness: hit/miss is checked against committed board roots.
+- Optional staking: STRK/WBTC matches with on-chain settlement.
+- Recovery-safe UX: encrypted board secrets + restore flow.
+- Replay-safe sync: checkpointed, deduped event indexing.
+- Modern game UX: proof rail, profile progression, medals, post-match debrief, audio pack.
 
-## Fog of War Model
+## Player Flow (How To Navigate)
 
-1. Board Fog: each player commits only a root on-chain, not ship coordinates.
-2. Attack Fog: attacker submits a hidden attack commitment before revealing `(x, y)`.
-3. Resolution Fog: defender reveals only the attacked cell outcome (hit/miss), not full board layout.
-4. Integrity: all reveals are checked against prior commitments, so hidden state is still trustless.
+### 1. Lobby
 
-## Dev Playtest Feedback -> Fixes
+- Open app, connect wallet.
+- On home screen, click `Start / Resume Match` to open `Operations`.
+- In Operations:
+  - `Host`: create a new match (optional stake token + amount).
+  - `My Games`: resume an existing match.
 
-During dev playtests, the biggest issues reported were:
+### 2. Placement
 
-1. Attack coordinates were visible too early.
-2. Board secret handling in browser storage was too fragile.
-3. Event sync could drift or duplicate state after refresh/reconnect.
-4. Turn/state reconstruction got unstable as event history grew.
-5. First-time users got blocked by wallet funding confusion.
-6. Debugging desync and reveal failures was too slow.
+- Place ships on your 10x10 board.
+- Commit board root on-chain.
+- Save/copy the recovery package after commit.
 
-I addressed those directly in this pass with the following implemented changes:
+### 3. Combat
 
-1. Attack intent privacy via commit-reveal (`commit_attack` -> `reveal_attack`)
-2. Per-cell randomness via deterministic per-cell nonces (derived from one master secret)
-3. Stronger local secret management (encrypted at rest + recovery package flow)
-4. Event replay/confusion hardening (persistent dedupe + explicit matching with attacker identity)
-5. Incremental event indexing/checkpointing (no full-history re-poll on every cycle)
-6. Dev observability (structured logs + sync health telemetry in combat UI)
-7. Wallet onboarding checklist in lobby (funding gate before spawn)
-8. Test coverage for core protocol helpers (6 Cairo tests)
-9. Threat model and privacy guarantees documented below
+- Fire on target grid.
+- Each shot follows protocol:
+  - `commit_attack`
+  - `reveal_attack`
+  - defender Merkle-based `reveal`
+- Track real-time state in:
+  - `Proof Rail` (protocol step status)
+  - `Combat Intel` (accuracy, streak, medals)
+  - `Commander Profile` (XP/rank progression)
 
-Still not implemented in this pass:
+### 4. Debrief
 
-1. Full ZK hit/miss proof system (`P0.3`)
-2. Framework extraction into multi-game package (`#10`)
+- Match ends on fleet destruction, timeout resolution, or stake cancellation path.
+- Open `View Debrief` for post-match summary:
+  - XP gain + rank progress
+  - medals earned
+  - shot heatmap
+  - replay timeline
 
-## Current Protocol (On-Chain)
+## Protocol Summary
 
-### Setup
+- Board commit: `commit_board(game_id, merkle_root)`
+- Attack commit-reveal:
+  - `commit_attack(game_id, attack_hash)`
+  - `reveal_attack(game_id, x, y, reveal_nonce)`
+- Defender proof reveal:
+  - `reveal(game_id, x, y, cell_nonce, is_ship, proof)`
 
-1. Each player builds a local 10x10 board.
-2. Each cell leaf is hashed as:
-   - `hash(x, y, cell_nonce, is_ship)`
-3. The player calls:
-   - `commit_board(game_id, merkle_root)`
+### Staked Matches (Optional)
 
-### Attack Intent Privacy
+- Create staked game: `spawn_game_with_stake(...)`
+- Opponent locks stake: `lock_stake(game_id)`
+- Settlement occurs on valid game end path.
+- Setup timeout safeguards include `cancel_staked_game(game_id)` when eligible.
 
-The attacking flow is now two-step:
+## Quick Start
 
-1. `commit_attack(game_id, attack_hash)`
-2. `reveal_attack(game_id, x, y, reveal_nonce)`
+### 1) Frontend (Sepolia)
 
-Where:
-
-- `attack_hash = hash(x, y, reveal_nonce)`
-- raw coordinates are hidden until `reveal_attack`
-
-### Defender Reveal
-
-Defender responds with:
-
-- `reveal(game_id, x, y, cell_nonce, is_ship, proof)`
-
-Contract verifies:
-
-1. there is a pending attack for `(x, y)` and current attacker
-2. Merkle proof against defender commitment root
-3. updates attack record, hit count, turn state, and win state
-
-### Staked Match Flow (STRK / WBTC)
-
-Staking is optional per match and currently supports:
-
-1. `STRK` (Sepolia token from Starkzap token list)
-2. `WBTC` (configured by env var)
-
-Flow:
-
-1. Host creates either:
-   - `spawn_game(opponent)` for no stake
-   - `spawn_game_with_stake(opponent, stake_token, stake_amount)` for staked match
-2. Host stake is pulled during `spawn_game_with_stake`
-3. Opponent approves token then calls `lock_stake(game_id)`
-4. `commit_board` is blocked until each caller's stake is locked for staked games
-5. Winner settlement:
-   - destruction win and timeout win call internal stake settlement
-   - winner receives both stake amounts
-6. Setup timeout paths:
-   - one committed / one not committed: committed player can claim timeout win
-   - both locked, neither committed: either player can call `cancel_staked_game(game_id)` after timeout to refund both sides
-
-## Contract Changes Walkthrough
-
-### `src/models.cairo`
-
-Added:
-
-1. `AttackCommitment`
-   - stores per-attacker attack commitment hash before coordinate reveal
-2. `PendingAttack`
-   - stores exactly one unresolved attack per game
-   - enforces reveal-to-attack matching invariants
-3. `Game` staking metadata:
-   - `stake_token`
-   - `stake_amount`
-   - `stake_locked_p1`
-   - `stake_locked_p2`
-   - `stake_settled`
-
-### `src/systems/actions.cairo`
-
-Key upgrades:
-
-1. New entrypoints:
-   - `commit_attack`
-   - `reveal_attack`
-   - `spawn_game_with_stake`
-   - `lock_stake`
-   - `cancel_staked_game`
-2. New stake events:
-   - `stake_locked`
-   - `stake_settled`
-3. `reveal(...)` now uses `cell_nonce` semantics (per-cell nonce), not global board salt
-4. Strict pending attack checks:
-   - no second attack can be progressed before pending one is resolved
-   - defender reveal must match pending `(attacker, x, y)`
-5. `attack_revealed` event now includes `attacker`
-   - frontend matching is deterministic even under repeated coordinates
-6. `game_ended` now emitted for destruction wins, timeout wins, setup-timeout wins, and stake cancellation
-7. Timeout logic uses shared helper (`has_timed_out`)
-8. Staked setup behavior:
-   - stake lock required before commitment
-   - setup timeout supports committed-player claim
-   - setup cancel refunds if neither side committed
-
-### `src/utils.cairo` (new)
-
-Shared protocol helper functions:
-
-1. `compute_attack_commitment_hash`
-2. `compute_board_leaf_hash`
-3. `is_in_bounds`
-4. `has_timed_out`
-
-These are used by contract logic and unit-tested.
-
-## Frontend Changes Walkthrough
-
-### Transaction API
-
-File: `dark-waters-layout/src/hooks/useGameActions.ts`
-
-Added:
-
-1. `commitAttack(gameId, attackHash)`
-2. `revealAttack(gameId, x, y, revealNonce)`
-3. `spawnGameWithStake(opponent, stakeToken, stakeAmount)`
-4. `lockStake(gameId)`
-5. `cancelStakedGame(gameId)`
-
-Updated:
-
-1. `reveal(...)` now passes `cellNonce`
-2. structured dev logging for tx lifecycle and errors
-
-### Wallet Policies
-
-File: `dark-waters-layout/components/wallet-provider.tsx`
-
-Policies now include:
-
-1. `commit_attack`
-2. `reveal_attack`
-3. `spawn_game_with_stake`
-4. `lock_stake`
-5. `cancel_staked_game`
-
-(`attack` policy removed from gameplay flow)
-
-### Merkle + Nonce Model
-
-File: `dark-waters-layout/src/utils/merkle.ts`
-
-Changes:
-
-1. added deterministic per-cell nonce derivation:
-   - `deriveCellNonce(masterSecret, x, y)`
-2. leaf generation switched to:
-   - `hash(x, y, derived_cell_nonce, is_ship)`
-3. added:
-   - `computeAttackCommitmentHash(...)`
-   - `getCellNonceHex(x, y)`
-   - `randomFeltHex(...)`
-
-### Secret Storage Hardening
-
-File: `dark-waters-layout/src/utils/secret-storage.ts` (new)
-
-Changes:
-
-1. board + master secret are encrypted with `AES-GCM`
-2. encrypted payload stored in localStorage
-3. decryption key stored in sessionStorage
-4. recovery package format implemented:
-   - `{ gameId, address, secretKey, encryptedPayload }`
-5. legacy plaintext migration added for old saved states
-
-### Placement Flow
-
-File: `dark-waters-layout/components/placement/ship-placement.tsx`
-
-Changes:
-
-1. generates master secret (instead of global board salt)
-2. stores encrypted secrets before commit tx
-3. copies recovery package to clipboard after successful commit
-4. for staked matches:
-   - approves stake token allowance via Starkzap tx builder
-   - locks stake before committing board
-
-### Combat Flow
-
-File: `dark-waters-layout/hooks/use-combat.ts`
-
-Changes:
-
-1. attack submission now:
-   - computes attack commitment hash
-   - sends `commit_attack`
-   - sends `reveal_attack`
-2. decrypted board secrets loaded from encrypted store
-3. combat UI state persisted for reconnect/refresh continuity
-
-### Event Sync, Replay Safety, Incremental Indexing
-
-Files:
-
-1. `dark-waters-layout/src/utils/event-checkpoint.ts` (new)
-2. `dark-waters-layout/hooks/use-attack-listener.ts`
-3. `dark-waters-layout/hooks/useGameState.ts`
-
-Changes:
-
-1. checkpointed polling from last processed block
-2. persistent event-id dedupe
-3. explicit attacker-aware reveal parsing
-4. deterministic state rebuild from cached parsed history
-5. no repeated full-history replay on each poll cycle
-
-### Observability
-
-Files:
-
-1. `dark-waters-layout/src/utils/logger.ts` (new)
-2. `dark-waters-layout/components/combat/combat-dashboard.tsx`
-
-Changes:
-
-1. structured logs with error codes in dev mode
-2. combat sync health telemetry:
-   - cursor block
-   - processed event count
-   - polling error count
-3. secret-restore panel shown when encrypted secrets are locked
-
-### Onboarding UX
-
-File: `dark-waters-layout/app/page.tsx`
-
-Changes:
-
-1. first-time funding checklist card in host tab
-2. spawn button gated until checklist is marked complete
-3. explicit Sepolia STRK funding guidance in-app
-4. optional staked lobby creation:
-   - token selector (`STRK` / `WBTC`)
-   - amount input
-5. setup-phase cancellation CTA for stalled staked setup (after timeout)
-
-File: `dark-waters-layout/components/wallet-status.tsx`
-
-Changes:
-
-1. copy address now actually copies
-2. explorer link opens Voyager Sepolia for connected address
-
-## Threat Model And Privacy Guarantees
-
-### Private
-
-1. Full board layout before and during game
-2. Attack coordinate before `reveal_attack`
-3. Board secret material at rest in browser storage (encrypted)
-
-### Public
-
-1. Game metadata (players, phase, turn, winner)
-2. Commitment hashes and board roots
-3. Revealed attack coordinates (after `reveal_attack`)
-4. Revealed hit/miss outcomes
-5. Timing/transaction metadata
-
-### Attacker Assumptions
-
-Assume attacker can:
-
-1. read all on-chain data and events
-2. inspect browser localStorage/sessionStorage if local machine compromised
-3. observe tx timing/order
-
-### Guarantees
-
-1. Coordinate secrecy until reveal step
-2. Hit/miss correctness tied to committed root + per-cell nonce
-3. No plaintext board/master secret persisted in localStorage
-4. Deterministic replay-safe event processing under reconnects
-
-### Non-Guarantees (Current)
-
-1. Full metadata privacy (timing/network still visible)
-2. Zero-knowledge reveal minimization (Merkle proof still disclosed)
-
-## Test Coverage
-
-File: `src/tests/test_world.cairo`
-
-Added 6 Cairo unit tests:
-
-1. commitment hash determinism
-2. commitment hash nonce sensitivity
-3. leaf hash ship-bit sensitivity
-4. leaf hash nonce sensitivity
-5. bounds checks
-6. strict timeout boundary behavior
-
-Run:
-
-```bash
-scarb test
-```
-
-## Running The Project
-
-### Frontend (Sepolia)
-
-Set token env vars in `dark-waters-layout/.env.local`:
+Set env vars in `dark-waters-layout/.env.local`:
 
 ```bash
 NEXT_PUBLIC_SEPOLIA_STRK_TOKEN_ADDRESS=0x...
 NEXT_PUBLIC_SEPOLIA_WBTC_TOKEN_ADDRESS=0x...
 ```
 
-Then run:
+Run:
 
 ```bash
 cd dark-waters-layout
@@ -374,15 +86,19 @@ npm install
 npm run dev
 ```
 
-If you change env vars, restart the dev server.
+### 2) Contract Tests
 
-### Local Dojo stack with Docker
+```bash
+scarb test
+```
+
+### 3) Local Dojo Stack (Docker)
 
 ```bash
 docker compose up
 ```
 
-### Manual local stack
+### 4) Local Dojo Stack (Manual)
 
 Terminal 1:
 
@@ -398,66 +114,36 @@ sozo migrate
 torii --world <WORLD_ADDRESS> --http.cors_origins "*"
 ```
 
-## Deployment Notes For Staking Upgrade
+## Config Notes
 
-Staking requires the updated `Actions` contract to be migrated on-chain.
+After on-chain migration, update:
 
-After migration:
+- `dark-waters-layout/src/config/sepolia-config.ts`
+  - `WORLD_ADDRESS`
+  - `ACTIONS_ADDRESS`
+  - `DEPLOYED_BLOCK`
 
-1. update `dark-waters-layout/src/config/sepolia-config.ts`:
-   - `WORLD_ADDRESS`
-   - `ACTIONS_ADDRESS`
-   - `DEPLOYED_BLOCK`
-2. confirm `.env.local` token addresses are set (`STRK`, `WBTC`)
-3. restart frontend
+Then restart frontend.
 
-## Validation Notes From This Upgrade Pass
-
-Internal dev playtest notes:
-
-1. We replayed attack/reveal rounds across multiple sessions and confirmed turn handoff behavior after commit-reveal attacks.
-2. We tested reconnect/refresh behavior to confirm event dedupe and deterministic state reconstruction.
-3. We validated first-time onboarding flow with checklist gating for funded Cartridge accounts.
-
-Commands executed:
-
-1. `scarb build` (passes)
-2. `scarb test` (passes: 6 tests)
-3. `./node_modules/.bin/tsc --noEmit` in frontend (passes)
-
-Known environment limitation in this workspace:
-
-1. `npm run build` fails here because Next.js cannot fetch Google Fonts (`Inter`, `JetBrains Mono`) due restricted network access in build environment.
-
-## Repository Layout
+## Repo Layout
 
 ```text
 .
-|- src/
-|  |- models.cairo
-|  |- utils.cairo
-|  |- systems/actions.cairo
-|  `- tests/test_world.cairo
-|- dark-waters-layout/
+|- src/                          # Dojo world + systems
+|- dark-waters-layout/           # Next.js game client
 |  |- app/
 |  |- components/
 |  |- hooks/
+|  |- public/audio/
 |  `- src/
-|     |- hooks/useGameActions.ts
-|     |- lib/stake-token.ts
-|     |- lib/starkzap-wallet-adapter.ts
-|     `- utils/
-|        |- token-amount.ts
-|        |- merkle.ts
-|        |- secret-storage.ts
-|        |- event-checkpoint.ts
-|        `- logger.ts
 |- compose.yaml
 |- dojo_dev.toml
-|- dojo_sepolia.toml
-`- deploy_sepolia.sh
+`- dojo_sepolia.toml
 ```
 
-## Live Link
+## Security/Privacy Notes
 
-https://dark-waters-m2fn.vercel.app/
+- Private before reveal: fleet layout, attack intent.
+- Public on-chain: commitments, revealed attacks, outcomes, game metadata.
+- Local secrets are encrypted at rest in browser storage and support recovery restore.
+
