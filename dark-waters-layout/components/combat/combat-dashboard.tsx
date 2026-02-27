@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useCombat } from "@/hooks/use-combat"
 import { useAttackListener } from "@/hooks/use-attack-listener"
 import { TurnIndicator } from "./turn-indicator"
@@ -8,10 +8,19 @@ import { CombatGrid } from "./combat-grid"
 import { BattleLog } from "./battle-log"
 import { FleetStatus } from "./fleet-status"
 import { ERROR_CODES } from "@/src/utils/logger"
+import { ProofRail } from "./proof-rail"
+import { RecoveryOpsPanel } from "./recovery-ops-panel"
+import { useWallet } from "@/components/wallet-provider"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { CombatIntelPanel } from "./combat-intel-panel"
+import { useCombatAudio } from "@/hooks/use-combat-audio"
+import { useCommanderProfile } from "@/hooks/use-commander-profile"
+import { CommanderProfilePanel } from "./commander-profile-panel"
+import { PostMatchSummary } from "./post-match-summary"
 import { Button } from "@/components/ui/button"
-import { Textarea } from "@/components/ui/textarea"
 
 export function CombatDashboard() {
+  const { address } = useWallet()
   const {
     isPlayerTurn,
     playerGrid,
@@ -22,10 +31,10 @@ export function CombatDashboard() {
     gameOver,
     fireAtTarget,
     gameId,
+    protocolRail,
     applyRevealedAttack,
     applyIncomingAttack,
   } = useCombat()
-  const [recoveryPackage, setRecoveryPackage] = useState("")
 
   // ── Event listener for auto-reveal + grid updates ──────────────────
 
@@ -41,6 +50,26 @@ export function CombatDashboard() {
     gameId,
     pollInterval: 4000,
   })
+  const {
+    audioEnabled,
+    setAudioEnabled,
+    audioMode,
+    setAudioMode,
+    musicEnabled,
+    setMusicEnabled,
+    sfxVolume,
+    setSfxVolume,
+    musicVolume,
+    setMusicVolume,
+    playCue,
+  } = useCombatAudio()
+  const { profile, progression, lastReward, registerMatch } = useCommanderProfile(address)
+  const [summaryOpen, setSummaryOpen] = useState(false)
+  const [summaryRewardGameId, setSummaryRewardGameId] = useState<number | null>(null)
+  const lastBattleEventRef = useRef<string | null>(null)
+  const previousTurnRef = useRef<boolean | null>(null)
+  const lastGameOverRef = useRef<"win" | "lose" | "draw" | null>(null)
+  const rewardedGameRef = useRef<number | null>(null)
 
   // Apply MY attack reveals to the target grid (attacks I made, now revealed)
   useEffect(() => {
@@ -55,6 +84,67 @@ export function CombatDashboard() {
       applyIncomingAttack(revealed.id, revealed.x, revealed.y, revealed.isHit)
     }
   }, [enemyRevealedAttacks, applyIncomingAttack])
+
+  useEffect(() => {
+    const latestEvent = battleLog[0]
+    if (!latestEvent) return
+    if (lastBattleEventRef.current === latestEvent.id) return
+    lastBattleEventRef.current = latestEvent.id
+
+    if (latestEvent.type === "player") {
+      void playCue(latestEvent.result === "miss" ? "playerMiss" : "playerHit")
+      return
+    }
+
+    void playCue(latestEvent.result === "miss" ? "enemyMiss" : "enemyHit")
+  }, [battleLog, playCue])
+
+  useEffect(() => {
+    const previousTurn = previousTurnRef.current
+    if (previousTurn === false && isPlayerTurn && !gameOver) {
+      void playCue("turnReady")
+    }
+    previousTurnRef.current = isPlayerTurn
+  }, [gameOver, isPlayerTurn, playCue])
+
+  useEffect(() => {
+    if (!gameOver || lastGameOverRef.current === gameOver) return
+    lastGameOverRef.current = gameOver
+    void playCue(gameOver === "win" ? "victory" : gameOver === "lose" ? "defeat" : "draw")
+  }, [gameOver, playCue])
+
+  useEffect(() => {
+    if (!gameOver) {
+      lastGameOverRef.current = null
+    }
+  }, [gameOver])
+
+  useEffect(() => {
+    if (!gameId || !gameOver) return
+    if (rewardedGameRef.current === gameId) return
+    const reward = registerMatch(gameId, gameOver, battleLog)
+    if (reward) {
+      setSummaryRewardGameId(reward.gameId)
+    } else if (lastReward?.gameId === gameId) {
+      setSummaryRewardGameId(lastReward.gameId)
+    }
+    rewardedGameRef.current = gameId
+    setSummaryOpen(true)
+  }, [battleLog, gameId, gameOver, lastReward, registerMatch])
+
+  useEffect(() => {
+    if (!gameId) {
+      rewardedGameRef.current = null
+      setSummaryRewardGameId(null)
+      setSummaryOpen(false)
+      return
+    }
+    if (!gameOver) {
+      rewardedGameRef.current = null
+      setSummaryRewardGameId(null)
+      setSummaryOpen(false)
+    }
+  }, [gameId, gameOver])
 
   return (
     <div className="mx-auto max-w-6xl px-3 py-4 lg:px-6 lg:py-6">
@@ -73,26 +163,8 @@ export function CombatDashboard() {
         <div className="mx-auto mt-3 max-w-3xl rounded-lg border border-amber-500/50 bg-amber-500/10 p-3">
           <p className="text-xs font-semibold text-amber-300">Secrets Locked</p>
           <p className="mt-1 text-xs text-amber-100/80">
-            Paste your recovery package to restore encrypted board secrets and resume auto-reveal.
+            Recovery package required. Restore from the Recovery Ops panel below.
           </p>
-          <Textarea
-            value={recoveryPackage}
-            onChange={(event) => setRecoveryPackage(event.target.value)}
-            placeholder='{"version":1,"gameId":...}'
-            className="mt-2 min-h-24 font-mono text-[11px]"
-          />
-          <div className="mt-2 flex justify-end">
-            <Button
-              size="sm"
-              onClick={() => {
-                if (!recoveryPackage.trim()) return
-                const restored = restoreSecrets(recoveryPackage)
-                if (restored) setRecoveryPackage("")
-              }}
-            >
-              Restore Secrets
-            </Button>
-          </div>
         </div>
       )}
 
@@ -106,15 +178,91 @@ export function CombatDashboard() {
             Sync block {syncHealth.cursorBlock} • processed {syncHealth.processedEvents} • errors{" "}
             {syncHealth.pollErrors}
           </span>
+          {gameOver && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="mt-1 h-7 border-cyan-500/40 text-[11px] text-cyan-100"
+              onClick={() => setSummaryOpen(true)}
+            >
+              View Debrief
+            </Button>
+          )}
         </div>
       )}
 
-      {/* Main content area */}
-      <div className="mt-4 flex flex-col gap-4 lg:mt-6 lg:flex-row lg:gap-6">
-        {/* Left column: Grids */}
+      <div className="mt-4 lg:hidden">
+        <Tabs defaultValue="tactical">
+          <TabsList className="grid w-full grid-cols-2">
+            <TabsTrigger value="tactical">Tactical</TabsTrigger>
+            <TabsTrigger value="protocol">Protocol</TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="tactical" className="mt-4 space-y-4">
+            <div className="grid gap-4">
+              <CombatGrid
+                grid={playerGrid}
+                label="Your Fleet"
+                isInteractive={false}
+                locked={!isPlayerTurn}
+                showShips={true}
+              />
+              <CombatGrid
+                grid={targetGrid}
+                label="Target Sector"
+                isInteractive={true}
+                locked={!isPlayerTurn || gameOver !== null}
+                showShips={false}
+                onCellClick={fireAtTarget}
+              />
+            </div>
+            <div className="grid gap-3">
+              <FleetStatus ships={playerShips} label="Your Fleet Status" />
+              <FleetStatus ships={enemyShips} label="Enemy Fleet Intel" />
+            </div>
+          </TabsContent>
+
+          <TabsContent value="protocol" className="mt-4 space-y-4">
+            <ProofRail rail={protocolRail} syncHealth={syncHealth} />
+            <CommanderProfilePanel
+              profile={profile}
+              progression={progression}
+              lastReward={summaryRewardGameId && lastReward?.gameId === summaryRewardGameId ? lastReward : null}
+            />
+            <CombatIntelPanel
+              entries={battleLog}
+              gameOver={gameOver}
+              audioEnabled={audioEnabled}
+              onAudioEnabledChange={setAudioEnabled}
+              audioMode={audioMode}
+              onAudioModeChange={setAudioMode}
+              musicEnabled={musicEnabled}
+              onMusicEnabledChange={setMusicEnabled}
+              sfxVolume={sfxVolume}
+              onSfxVolumeChange={setSfxVolume}
+              musicVolume={musicVolume}
+              onMusicVolumeChange={setMusicVolume}
+            />
+            <RecoveryOpsPanel
+              gameId={gameId}
+              address={address}
+              lastError={lastError}
+              syncHealth={syncHealth}
+              restoreSecrets={restoreSecrets}
+            />
+            <BattleLog entries={battleLog} />
+          </TabsContent>
+        </Tabs>
+      </div>
+
+      <div className="mt-4 hidden lg:block">
+        <ProofRail rail={protocolRail} syncHealth={syncHealth} />
+      </div>
+
+      {/* Main content area (desktop) */}
+      <div className="mt-4 hidden lg:flex lg:gap-6">
         <div className="flex-1">
-          <div className="flex flex-col gap-4 sm:flex-row sm:gap-4 lg:gap-6">
-            {/* Player's fleet grid */}
+          <div className="flex gap-6">
             <div className="flex-1">
               <CombatGrid
                 grid={playerGrid}
@@ -124,8 +272,6 @@ export function CombatDashboard() {
                 showShips={true}
               />
             </div>
-
-            {/* Target sector grid */}
             <div className="flex-1">
               <CombatGrid
                 grid={targetGrid}
@@ -138,8 +284,7 @@ export function CombatDashboard() {
             </div>
           </div>
 
-          {/* Fleet health bars under grids */}
-          <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:gap-4 lg:gap-6">
+          <div className="mt-4 flex gap-6">
             <div className="flex-1">
               <FleetStatus ships={playerShips} label="Your Fleet Status" />
             </div>
@@ -149,11 +294,45 @@ export function CombatDashboard() {
           </div>
         </div>
 
-        {/* Right column: Battle Log */}
-        <div className="w-full lg:w-72 xl:w-80">
+        <div className="w-full space-y-4 lg:w-80 xl:w-96">
+          <CommanderProfilePanel
+            profile={profile}
+            progression={progression}
+            lastReward={summaryRewardGameId && lastReward?.gameId === summaryRewardGameId ? lastReward : null}
+          />
+          <CombatIntelPanel
+            entries={battleLog}
+            gameOver={gameOver}
+            audioEnabled={audioEnabled}
+            onAudioEnabledChange={setAudioEnabled}
+            audioMode={audioMode}
+            onAudioModeChange={setAudioMode}
+            musicEnabled={musicEnabled}
+            onMusicEnabledChange={setMusicEnabled}
+            sfxVolume={sfxVolume}
+            onSfxVolumeChange={setSfxVolume}
+            musicVolume={musicVolume}
+            onMusicVolumeChange={setMusicVolume}
+          />
+          <RecoveryOpsPanel
+            gameId={gameId}
+            address={address}
+            lastError={lastError}
+            syncHealth={syncHealth}
+            restoreSecrets={restoreSecrets}
+          />
           <BattleLog entries={battleLog} />
         </div>
       </div>
+
+      <PostMatchSummary
+        open={summaryOpen}
+        onOpenChange={setSummaryOpen}
+        gameId={gameId}
+        gameOver={gameOver}
+        entries={battleLog}
+        reward={summaryRewardGameId && lastReward?.gameId === summaryRewardGameId ? lastReward : null}
+      />
     </div>
   )
 }

@@ -1,5 +1,5 @@
-import { Lobby } from "@/components/lobby/lobby"
+import { redirect } from "next/navigation"
 
 export default function LobbyPage() {
-  return <Lobby />
+  redirect("/")
 }

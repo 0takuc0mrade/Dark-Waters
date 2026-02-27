@@ -1,5 +1,5 @@
-import { ShipPlacement } from "@/components/placement/ship-placement"
+import { redirect } from "next/navigation"
 
 export default function PlacementPage() {
-  return <ShipPlacement />
+  redirect("/")
 }

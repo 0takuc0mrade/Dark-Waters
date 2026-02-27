@@ -63,8 +63,8 @@ const config: Config = {
         },
       },
       fontFamily: {
-        sans: ['var(--font-inter)', 'system-ui', 'sans-serif'],
-        mono: ['var(--font-jetbrains-mono)', 'monospace'],
+        sans: ['var(--font-rajdhani)', 'system-ui', 'sans-serif'],
+        mono: ['var(--font-ibm-mono)', 'monospace'],
       },
       borderRadius: {
         lg: 'var(--radius)',

@@ -1,5 +1,5 @@
-import { CombatDashboard } from "@/components/combat/combat-dashboard"
+import { redirect } from "next/navigation"
 
 export default function CombatPage() {
-  return <CombatDashboard />
+  redirect("/")
 }

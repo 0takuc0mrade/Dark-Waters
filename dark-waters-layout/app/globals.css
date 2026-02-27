@@ -10,39 +10,39 @@
 
 @layer base {
   :root {
-    --background: 210 20% 6%;
-    --foreground: 210 20% 95%;
-    --card: 210 18% 8%;
-    --card-foreground: 210 20% 95%;
-    --popover: 210 18% 10%;
-    --popover-foreground: 210 20% 95%;
-    --primary: 187 70% 48%;
-    --primary-foreground: 210 20% 4%;
-    --secondary: 210 14% 14%;
-    --secondary-foreground: 210 20% 85%;
-    --muted: 210 14% 12%;
-    --muted-foreground: 210 12% 50%;
-    --accent: 150 60% 44%;
-    --accent-foreground: 210 20% 4%;
+    --background: 204 48% 7%;
+    --foreground: 191 54% 94%;
+    --card: 206 39% 10%;
+    --card-foreground: 191 54% 94%;
+    --popover: 206 39% 11%;
+    --popover-foreground: 191 54% 94%;
+    --primary: 191 86% 55%;
+    --primary-foreground: 206 42% 8%;
+    --secondary: 207 32% 16%;
+    --secondary-foreground: 191 28% 86%;
+    --muted: 206 29% 14%;
+    --muted-foreground: 197 18% 62%;
+    --accent: 166 78% 42%;
+    --accent-foreground: 206 42% 8%;
     --destructive: 0 72% 50%;
     --destructive-foreground: 0 0% 98%;
-    --border: 210 14% 16%;
-    --input: 210 14% 16%;
-    --ring: 187 70% 48%;
-    --chart-1: 187 70% 48%;
-    --chart-2: 150 60% 44%;
-    --chart-3: 210 50% 55%;
-    --chart-4: 30 80% 55%;
-    --chart-5: 340 75% 55%;
+    --border: 203 25% 24%;
+    --input: 203 25% 24%;
+    --ring: 191 86% 55%;
+    --chart-1: 191 86% 55%;
+    --chart-2: 166 78% 42%;
+    --chart-3: 202 68% 51%;
+    --chart-4: 44 86% 56%;
+    --chart-5: 12 82% 61%;
     --radius: 0.5rem;
-    --sidebar-background: 210 18% 7%;
-    --sidebar-foreground: 210 20% 90%;
-    --sidebar-primary: 187 70% 48%;
-    --sidebar-primary-foreground: 210 20% 4%;
-    --sidebar-accent: 210 14% 14%;
-    --sidebar-accent-foreground: 210 20% 90%;
-    --sidebar-border: 210 14% 16%;
-    --sidebar-ring: 187 70% 48%;
+    --sidebar-background: 206 39% 9%;
+    --sidebar-foreground: 191 30% 88%;
+    --sidebar-primary: 191 86% 55%;
+    --sidebar-primary-foreground: 206 42% 8%;
+    --sidebar-accent: 207 32% 14%;
+    --sidebar-accent-foreground: 191 30% 88%;
+    --sidebar-border: 203 25% 24%;
+    --sidebar-ring: 191 86% 55%;
   }
 }
 
@@ -52,7 +52,21 @@
   }
   body {
     @apply bg-background text-foreground;
+    background-image:
+      radial-gradient(circle at 12% 12%, rgba(34, 211, 238, 0.2), transparent 34%),
+      radial-gradient(circle at 88% 18%, rgba(14, 116, 144, 0.16), transparent 30%),
+      radial-gradient(circle at 50% 100%, rgba(15, 118, 110, 0.18), transparent 38%);
+    background-attachment: fixed;
+    min-height: 100vh;
   }
+}
+
+.command-grid {
+  background-image:
+    linear-gradient(rgba(100, 116, 139, 0.08) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(100, 116, 139, 0.08) 1px, transparent 1px);
+  background-size: 42px 42px;
+  mask-image: radial-gradient(circle at center, black 40%, transparent 88%);
 }
 
 @keyframes pulse-glow {

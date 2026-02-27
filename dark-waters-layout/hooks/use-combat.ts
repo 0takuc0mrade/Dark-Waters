@@ -26,6 +26,18 @@ interface PersistedCombatState {
   logCounter: number
 }
 
+export type ProofStepStatus = "idle" | "pending" | "confirmed" | "failed"
+
+export interface ProtocolRailState {
+  coordinate: string | null
+  commitAttack: ProofStepStatus
+  revealAttack: ProofStepStatus
+  merkleVerification: ProofStepStatus
+  stakeSettlement: ProofStepStatus
+  error: string | null
+  updatedAt: number | null
+}
+
 function getCombatStateKey(gameId: number, address: string): string {
   return `dark-waters-combat-state:${gameId}:${address.toLowerCase()}`
 }
@@ -135,6 +147,15 @@ export function useCombat() {
   const [pendingCell, setPendingCell] = useState<{ row: number; col: number } | null>(null)
   const [gameOver, setGameOver] = useState<"win" | "lose" | "draw" | null>(null)
   const [isAwaitingTurnHandoff, setIsAwaitingTurnHandoff] = useState(false)
+  const [protocolRail, setProtocolRail] = useState<ProtocolRailState>({
+    coordinate: null,
+    commitAttack: "idle",
+    revealAttack: "idle",
+    merkleVerification: "idle",
+    stakeSettlement: "idle",
+    error: null,
+    updatedAt: null,
+  })
 
   const logIdRef = useRef(0)
   const processedPlayerRevealRef = useRef<Set<string>>(new Set())
@@ -169,6 +190,15 @@ export function useCombat() {
     setGameOver(null)
     setIsPlayerTurn(true)
     setIsAwaitingTurnHandoff(false)
+    setProtocolRail({
+      coordinate: null,
+      commitAttack: "idle",
+      revealAttack: "idle",
+      merkleVerification: "idle",
+      stakeSettlement: "idle",
+      error: null,
+      updatedAt: null,
+    })
     processedPlayerRevealRef.current.clear()
     processedEnemyRevealRef.current.clear()
     hasHydratedTurnRef.current = false
@@ -244,6 +274,24 @@ export function useCombat() {
     }
   }, [gameState, address, isAwaitingTurnHandoff])
 
+  useEffect(() => {
+    if (!gameState) return
+    const nextStakeStatus: ProofStepStatus = gameState.isStakedMatch
+      ? gameState.stakeSettled
+        ? "confirmed"
+        : "pending"
+      : "idle"
+
+    setProtocolRail((prev) => {
+      if (prev.stakeSettlement === nextStakeStatus) return prev
+      return {
+        ...prev,
+        stakeSettlement: nextStakeStatus,
+        updatedAt: Date.now(),
+      }
+    })
+  }, [gameState])
+
   const addLogEntry = useCallback(
     (type: "player" | "enemy", coordinate: string, result: "hit" | "miss" | "sunk") => {
       const messageMap = {
@@ -297,10 +345,39 @@ export function useCombat() {
       const coord = getCoordinateLabel(row, col)
       const revealNonce = randomFeltHex(16)
       const attackHash = computeAttackCommitmentHash(col, row, revealNonce)
+      let failedStage: "commit" | "reveal" = "commit"
+
+      setProtocolRail({
+        coordinate: coord,
+        commitAttack: "pending",
+        revealAttack: "idle",
+        merkleVerification: "idle",
+        stakeSettlement:
+          gameState?.isStakedMatch
+            ? gameState.stakeSettled
+              ? "confirmed"
+              : "pending"
+            : "idle",
+        error: null,
+        updatedAt: Date.now(),
+      })
 
       try {
         await commitAttack(gameId, attackHash)
+        failedStage = "reveal"
+        setProtocolRail((prev) => ({
+          ...prev,
+          commitAttack: "confirmed",
+          revealAttack: "pending",
+          updatedAt: Date.now(),
+        }))
         await revealAttack(gameId, col, row, revealNonce)
+        setProtocolRail((prev) => ({
+          ...prev,
+          revealAttack: "confirmed",
+          merkleVerification: "pending",
+          updatedAt: Date.now(),
+        }))
 
         toast({
           title: "Attack Committed",
@@ -324,9 +401,19 @@ export function useCombat() {
         setIsAwaitingTurnHandoff(false)
         if (gameState) setIsPlayerTurn(gameState.isMyTurn)
 
+        const message = err instanceof Error ? err.message : "Transaction failed."
+        setProtocolRail((prev) => ({
+          ...prev,
+          commitAttack: failedStage === "commit" ? "failed" : "confirmed",
+          revealAttack: failedStage === "reveal" ? "failed" : prev.revealAttack,
+          merkleVerification: "failed",
+          error: message,
+          updatedAt: Date.now(),
+        }))
+
         toast({
           title: "Attack Failed",
-          description: err instanceof Error ? err.message : "Transaction failed.",
+          description: message,
           variant: "destructive",
         })
       }
@@ -359,6 +446,12 @@ export function useCombat() {
       setIsPlayerTurn(false)
       setIsAwaitingTurnHandoff(false)
       addLogEntry("player", getCoordinateLabel(y, x), isHit ? "hit" : "miss")
+      setProtocolRail((prev) => ({
+        ...prev,
+        merkleVerification: "confirmed",
+        error: null,
+        updatedAt: Date.now(),
+      }))
     },
     [addLogEntry]
   )
@@ -395,6 +488,7 @@ export function useCombat() {
     enemyShips,
     pendingCell,
     gameOver,
+    protocolRail,
     fireAtTarget,
     applyRevealedAttack,
     applyIncomingAttack,
