@@ -191,7 +191,7 @@ export function CombatDashboard() {
         </div>
       )}
 
-      <div className="mt-4 lg:hidden">
+      <div className="mt-4">
         <Tabs defaultValue="tactical">
           <TabsList className="grid w-full grid-cols-2">
             <TabsTrigger value="tactical">Tactical</TabsTrigger>
@@ -199,7 +199,7 @@ export function CombatDashboard() {
           </TabsList>
 
           <TabsContent value="tactical" className="mt-4 space-y-4">
-            <div className="grid gap-4">
+            <div className="grid gap-4 xl:grid-cols-2">
               <CombatGrid
                 grid={playerGrid}
                 label="Your Fleet"
@@ -216,7 +216,7 @@ export function CombatDashboard() {
                 onCellClick={fireAtTarget}
               />
             </div>
-            <div className="grid gap-3">
+            <div className="grid gap-3 md:grid-cols-2">
               <FleetStatus ships={playerShips} label="Your Fleet Status" />
               <FleetStatus ships={enemyShips} label="Enemy Fleet Intel" />
             </div>
@@ -224,105 +224,41 @@ export function CombatDashboard() {
 
           <TabsContent value="protocol" className="mt-4 space-y-4">
             <ProofRail rail={protocolRail} syncHealth={syncHealth} />
-            <CommanderProfilePanel
-              profile={profile}
-              progression={progression}
-              lastReward={summaryRewardGameId && lastReward?.gameId === summaryRewardGameId ? lastReward : null}
-            />
-            <CombatIntelPanel
-              entries={battleLog}
-              gameOver={gameOver}
-              audioEnabled={audioEnabled}
-              onAudioEnabledChange={setAudioEnabled}
-              audioMode={audioMode}
-              onAudioModeChange={setAudioMode}
-              musicEnabled={musicEnabled}
-              onMusicEnabledChange={setMusicEnabled}
-              sfxVolume={sfxVolume}
-              onSfxVolumeChange={setSfxVolume}
-              musicVolume={musicVolume}
-              onMusicVolumeChange={setMusicVolume}
-            />
-            <RecoveryOpsPanel
-              gameId={gameId}
-              address={address}
-              lastError={lastError}
-              syncHealth={syncHealth}
-              restoreSecrets={restoreSecrets}
-            />
-            <BattleLog entries={battleLog} />
+            <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_22rem]">
+              <div className="space-y-4">
+                <CommanderProfilePanel
+                  profile={profile}
+                  progression={progression}
+                  lastReward={summaryRewardGameId && lastReward?.gameId === summaryRewardGameId ? lastReward : null}
+                />
+                <CombatIntelPanel
+                  entries={battleLog}
+                  gameOver={gameOver}
+                  audioEnabled={audioEnabled}
+                  onAudioEnabledChange={setAudioEnabled}
+                  audioMode={audioMode}
+                  onAudioModeChange={setAudioMode}
+                  musicEnabled={musicEnabled}
+                  onMusicEnabledChange={setMusicEnabled}
+                  sfxVolume={sfxVolume}
+                  onSfxVolumeChange={setSfxVolume}
+                  musicVolume={musicVolume}
+                  onMusicVolumeChange={setMusicVolume}
+                />
+                <RecoveryOpsPanel
+                  gameId={gameId}
+                  address={address}
+                  lastError={lastError}
+                  syncHealth={syncHealth}
+                  restoreSecrets={restoreSecrets}
+                />
+              </div>
+              <div className="space-y-4">
+                <BattleLog entries={battleLog} />
+              </div>
+            </div>
           </TabsContent>
         </Tabs>
-      </div>
-
-      <div className="mt-4 hidden lg:block">
-        <ProofRail rail={protocolRail} syncHealth={syncHealth} />
-      </div>
-
-      {/* Main content area (desktop) */}
-      <div className="mt-4 hidden lg:flex lg:gap-6">
-        <div className="flex-1">
-          <div className="flex gap-6">
-            <div className="flex-1">
-              <CombatGrid
-                grid={playerGrid}
-                label="Your Fleet"
-                isInteractive={false}
-                locked={!isPlayerTurn}
-                showShips={true}
-              />
-            </div>
-            <div className="flex-1">
-              <CombatGrid
-                grid={targetGrid}
-                label="Target Sector"
-                isInteractive={true}
-                locked={!isPlayerTurn || gameOver !== null}
-                showShips={false}
-                onCellClick={fireAtTarget}
-              />
-            </div>
-          </div>
-
-          <div className="mt-4 flex gap-6">
-            <div className="flex-1">
-              <FleetStatus ships={playerShips} label="Your Fleet Status" />
-            </div>
-            <div className="flex-1">
-              <FleetStatus ships={enemyShips} label="Enemy Fleet Intel" />
-            </div>
-          </div>
-        </div>
-
-        <div className="w-full space-y-4 lg:w-80 xl:w-96">
-          <CommanderProfilePanel
-            profile={profile}
-            progression={progression}
-            lastReward={summaryRewardGameId && lastReward?.gameId === summaryRewardGameId ? lastReward : null}
-          />
-          <CombatIntelPanel
-            entries={battleLog}
-            gameOver={gameOver}
-            audioEnabled={audioEnabled}
-            onAudioEnabledChange={setAudioEnabled}
-            audioMode={audioMode}
-            onAudioModeChange={setAudioMode}
-            musicEnabled={musicEnabled}
-            onMusicEnabledChange={setMusicEnabled}
-            sfxVolume={sfxVolume}
-            onSfxVolumeChange={setSfxVolume}
-            musicVolume={musicVolume}
-            onMusicVolumeChange={setMusicVolume}
-          />
-          <RecoveryOpsPanel
-            gameId={gameId}
-            address={address}
-            lastError={lastError}
-            syncHealth={syncHealth}
-            restoreSecrets={restoreSecrets}
-          />
-          <BattleLog entries={battleLog} />
-        </div>
       </div>
 
       <PostMatchSummary
