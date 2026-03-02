@@ -450,6 +450,119 @@ export interface GameSummary {
   isTurn: boolean
 }
 
+export interface SpawnedGameSummary {
+  gameId: number
+  host: string
+  stakeToken: string | null
+  stakeAmount: string
+  isStakedMatch: boolean
+  isMine: boolean
+}
+
+export const useSpawnedGames = () => {
+  const { address } = useAccount()
+  const [games, setGames] = useState<SpawnedGameSummary[]>([])
+  const [isLoading, setIsLoading] = useState(false)
+  const provider = useRef(new RpcProvider({ nodeUrl: SEPOLIA_CONFIG.RPC_URL }))
+
+  const fetchSpawnedGames = useCallback(async () => {
+    setIsLoading(true)
+    try {
+      const events = await fetchEventsSince(
+        provider.current,
+        GAME_SPAWNED_EVENT_HASH,
+        SEPOLIA_CONFIG.DEPLOYED_BLOCK
+      )
+
+      const latest = new Map<
+        number,
+        {
+          gameId: number
+          host: string
+          opponent: string
+          state: number
+          stakeToken: string | null
+          stakeAmount: string
+          blockNumber: number
+          eventIndex: number
+        }
+      >()
+
+      for (const event of events) {
+        if (!event.data || event.data.length < 7) continue
+        const parsedGameId = Number(event.data[1])
+        if (!Number.isFinite(parsedGameId) || parsedGameId <= 0) continue
+
+        const host = event.data[3]
+        const opponent = event.data[4]
+        const state = Number(event.data[6] ?? 0)
+        const rawStakeToken = event.data.length > 10 ? event.data[10] : null
+        const stakeToken =
+          rawStakeToken && !sameAddress(rawStakeToken, "0x0") ? rawStakeToken : null
+        const stakeAmount = event.data.length > 11 ? parseBigIntString(event.data[11], "0") : "0"
+        const blockNumber = eventBlockNumber(event, SEPOLIA_CONFIG.DEPLOYED_BLOCK)
+        const rawEventIndex = event.event_index ?? event.index
+        const eventIndex =
+          typeof rawEventIndex === "number" && Number.isFinite(rawEventIndex)
+            ? rawEventIndex
+            : 0
+
+        const existing = latest.get(parsedGameId)
+        const isNewer =
+          !existing ||
+          blockNumber > existing.blockNumber ||
+          (blockNumber === existing.blockNumber && eventIndex >= existing.eventIndex)
+        if (!isNewer) continue
+
+        latest.set(parsedGameId, {
+          gameId: parsedGameId,
+          host,
+          opponent,
+          state,
+          stakeToken,
+          stakeAmount,
+          blockNumber,
+          eventIndex,
+        })
+      }
+
+      const openGames = Array.from(latest.values())
+        .filter((game) => game.state === 0 && sameAddress(game.opponent, "0x0"))
+        .sort((a, b) => b.gameId - a.gameId)
+        .map((game) => {
+          const stakeValue = BigInt(parseBigIntString(game.stakeAmount, "0"))
+          const isStakedMatch = Boolean(game.stakeToken) && stakeValue > BigInt(0)
+          return {
+            gameId: game.gameId,
+            host: game.host,
+            stakeToken: game.stakeToken,
+            stakeAmount: game.stakeAmount,
+            isStakedMatch,
+            isMine: address ? sameAddress(game.host, address) : false,
+          }
+        })
+
+      setGames(openGames)
+    } catch (error) {
+      logEvent("error", {
+        code: ERROR_CODES.EVENT_POLL_FAILED,
+        message: "Failed to fetch spawned games",
+        metadata: { error: error instanceof Error ? error.message : String(error) },
+      })
+    } finally {
+      setIsLoading(false)
+    }
+  }, [address])
+
+  useEffect(() => {
+    fetchSpawnedGames()
+    const interval = setInterval(fetchSpawnedGames, 10000)
+    return () => clearInterval(interval)
+  }, [fetchSpawnedGames])
+
+  return { games, isLoading, refresh: fetchSpawnedGames }
+}
+
 export const useMyGames = () => {
   const { address } = useAccount()
   const [games, setGames] = useState<GameSummary[]>([])

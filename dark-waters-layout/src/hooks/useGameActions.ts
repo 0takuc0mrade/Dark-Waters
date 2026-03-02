@@ -74,9 +74,25 @@ export const useGameActions = () => {
     [execute]
   )
 
+  const spawnOpenGame = useCallback(
+    async () => execute("spawn_open_game", []),
+    [execute]
+  )
+
   const spawnGameWithStake = useCallback(
     async (opponent: string, stakeToken: string, stakeAmount: string) =>
       execute("spawn_game_with_stake", [opponent, stakeToken, stakeAmount]),
+    [execute]
+  )
+
+  const spawnOpenGameWithStake = useCallback(
+    async (stakeToken: string, stakeAmount: string) =>
+      execute("spawn_open_game_with_stake", [stakeToken, stakeAmount]),
+    [execute]
+  )
+
+  const engageGame = useCallback(
+    async (gameId: number) => execute("engage_game", [gameId]),
     [execute]
   )
 
@@ -125,7 +141,10 @@ export const useGameActions = () => {
 
   return {
     spawnGame,
+    spawnOpenGame,
     spawnGameWithStake,
+    spawnOpenGameWithStake,
+    engageGame,
     lockStake,
     cancelStakedGame,
     commitBoard,

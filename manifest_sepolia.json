@@ -34,13 +34,16 @@
   "contracts": [
     {
       "address": "0x18f4e1f102a3a2205ae200509ac059c432b545819324faf50a7412e1f652cce",
-      "class_hash": "0x1799ee839f8aecbc3b6dfc7c80f05739a9d4ce538b55edec6a1b7595b794d56",
+      "class_hash": "0x5274bfa5797074e82c86a518cbec4c5209590d8067ea2a54ab4316ae6152d4d",
       "init_calldata": [],
       "tag": "dark_waters-Actions",
       "selector": "0x7f689e2d818b18c76ed7a72d8b4bf448736c3dcbff39d1a36ed05da4fc67e00",
       "systems": [
         "spawn_game",
+        "spawn_open_game",
         "spawn_game_with_stake",
+        "spawn_open_game_with_stake",
+        "engage_game",
         "lock_stake",
         "cancel_staked_game",
         "commit_board",
@@ -1502,6 +1505,13 @@
         },
         {
           "type": "function",
+          "name": "spawn_open_game",
+          "inputs": [],
+          "outputs": [],
+          "state_mutability": "external"
+        },
+        {
+          "type": "function",
           "name": "spawn_game_with_stake",
           "inputs": [
             {
@@ -1515,6 +1525,34 @@
             {
               "name": "stake_amount",
               "type": "core::integer::u128"
+            }
+          ],
+          "outputs": [],
+          "state_mutability": "external"
+        },
+        {
+          "type": "function",
+          "name": "spawn_open_game_with_stake",
+          "inputs": [
+            {
+              "name": "stake_token",
+              "type": "core::starknet::contract_address::ContractAddress"
+            },
+            {
+              "name": "stake_amount",
+              "type": "core::integer::u128"
+            }
+          ],
+          "outputs": [],
+          "state_mutability": "external"
+        },
+        {
+          "type": "function",
+          "name": "engage_game",
+          "inputs": [
+            {
+              "name": "game_id",
+              "type": "core::integer::u32"
             }
           ],
           "outputs": [],

@@ -33,7 +33,7 @@ import { useWallet } from "@/components/wallet-provider"
 import { ShipPlacement } from "@/components/placement/ship-placement"
 import { CombatDashboard } from "@/components/combat/combat-dashboard"
 import { useToast } from "@/hooks/use-toast"
-import { useGameState, useMyGames } from "@/hooks/useGameState"
+import { useGameState, useMyGames, useSpawnedGames } from "@/hooks/useGameState"
 import { useGameActions } from "@/src/hooks/useGameActions"
 import { formatTokenAmountFromUnits } from "@/src/utils/token-amount"
 import {
@@ -149,18 +149,23 @@ function LobbyStation({ onJoin }: { onJoin: (id: number) => void }) {
   const { address } = useWallet()
   const { account } = useAccount()
   const { toast } = useToast()
-  const { spawnGame, spawnGameWithStake, isLoading } = useGameActions()
-  const { games, isLoading: loadingGames, refresh } = useMyGames()
+  const { spawnOpenGame, spawnOpenGameWithStake, engageGame, isLoading } = useGameActions()
+  const { games: myGames, isLoading: loadingGames, refresh } = useMyGames()
+  const {
+    games: spawnedGames,
+    isLoading: loadingSpawnedGames,
+    refresh: refreshSpawnedGames,
+  } = useSpawnedGames()
 
   const starkzapWallet = useMemo(() => createStarkzapWallet(account), [account])
 
-  const [activeTab, setActiveTab] = useState("host")
-  const [opponent, setOpponent] = useState("")
+  const [activeTab, setActiveTab] = useState("spawned")
   const [fundedChecklist, setFundedChecklist] = useState(false)
   const [isStakedMatch, setIsStakedMatch] = useState(false)
   const [stakeToken, setStakeToken] = useState<StakeTokenSymbol>("STRK")
   const [stakeAmount, setStakeAmount] = useState("0.10")
   const [isSpawning, setIsSpawning] = useState(false)
+  const [engagingGameId, setEngagingGameId] = useState<number | null>(null)
 
   useEffect(() => {
     setFundedChecklist(localStorage.getItem(LS_ONBOARDING_FUNDED) === "true")
@@ -173,14 +178,14 @@ function LobbyStation({ onJoin }: { onJoin: (id: number) => void }) {
   }, [address, toast])
 
   const handleSpawn = useCallback(async () => {
-    if (!opponent.trim() || isSpawning) return
+    if (isSpawning) return
     setIsSpawning(true)
 
     try {
       const tokenConfig = STAKE_TOKEN_OPTIONS[stakeToken]
       let result:
-        | Awaited<ReturnType<typeof spawnGame>>
-        | Awaited<ReturnType<typeof spawnGameWithStake>>
+        | Awaited<ReturnType<typeof spawnOpenGame>>
+        | Awaited<ReturnType<typeof spawnOpenGameWithStake>>
 
       if (isStakedMatch) {
         const token = getStakeToken(stakeToken)
@@ -234,13 +239,9 @@ function LobbyStation({ onJoin }: { onJoin: (id: number) => void }) {
           .send()
         await approveTx.wait()
 
-        result = await spawnGameWithStake(
-          opponent.trim(),
-          token.address,
-          stakeAmountValue.toBase().toString()
-        )
+        result = await spawnOpenGameWithStake(token.address, stakeAmountValue.toBase().toString())
       } else {
-        result = await spawnGame(opponent.trim())
+        result = await spawnOpenGame()
       }
 
       if (!result?.receipt) return
@@ -265,22 +266,26 @@ function LobbyStation({ onJoin }: { onJoin: (id: number) => void }) {
       }
 
       if (!createdGameId) {
-        toast({ title: "Match created", description: "Check My Games to continue." })
-        setActiveTab("join")
+        toast({ title: "Game spawned", description: "Open game submitted. Refresh spawned logs to engage." })
+        refreshSpawnedGames()
+        refresh()
+        setActiveTab("spawned")
         return
       }
 
       toast({
-        title: "Engagement created",
+        title: "Game spawned",
         description: isStakedMatch
-          ? `Game #${createdGameId} started with ${stakeAmount} ${tokenConfig.label} stake per player.`
-          : `Game #${createdGameId} is live.`,
+          ? `Game #${createdGameId} added to Spawned Games with ${stakeAmount} ${tokenConfig.label} stake per player.`
+          : `Game #${createdGameId} added to Spawned Games.`,
       })
-      onJoin(createdGameId)
+      refreshSpawnedGames()
+      refresh()
+      setActiveTab("spawned")
     } catch (error: any) {
       const message = error?.message ?? "Transaction failed"
       toast({
-        title: "Failed to create match",
+        title: "Failed to spawn game",
         description: message.includes("u256_sub Overflow")
           ? "Insufficient token balance/allowance. Confirm funds and retry once approval settles."
           : message,
@@ -291,16 +296,45 @@ function LobbyStation({ onJoin }: { onJoin: (id: number) => void }) {
     }
   }, [
     isSpawning,
-    opponent,
     isStakedMatch,
-    spawnGame,
-    spawnGameWithStake,
+    spawnOpenGame,
+    spawnOpenGameWithStake,
     stakeAmount,
     stakeToken,
     starkzapWallet,
     toast,
-    onJoin,
+    refreshSpawnedGames,
+    refresh,
   ])
+
+  const handleEngage = useCallback(
+    async (id: number) => {
+      if (engagingGameId !== null) return
+      setEngagingGameId(id)
+
+      try {
+        const result = await engageGame(id)
+        if (!result) throw new Error("Connect wallet before engaging a game.")
+
+        toast({
+          title: "Game engaged",
+          description: `You joined Game #${id}. Proceed to placement and commit your fleet.`,
+        })
+        refreshSpawnedGames()
+        refresh()
+        onJoin(id)
+      } catch (error) {
+        toast({
+          title: "Engage failed",
+          description: error instanceof Error ? error.message : "Transaction failed.",
+          variant: "destructive",
+        })
+      } finally {
+        setEngagingGameId(null)
+      }
+    },
+    [engagingGameId, engageGame, toast, refreshSpawnedGames, refresh, onJoin]
+  )
 
   return (
     <Card className="border-border/70 bg-card/80 shadow-[0_20px_55px_rgba(2,22,35,0.32)]">
@@ -311,8 +345,9 @@ function LobbyStation({ onJoin }: { onJoin: (id: number) => void }) {
               <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-cyan-100/90">Command Lobby</p>
               <p className="text-xs text-muted-foreground">Host a match or resume an existing operation.</p>
             </div>
-            <TabsList className="grid w-[240px] grid-cols-2">
+            <TabsList className="grid w-[320px] grid-cols-3">
               <TabsTrigger value="host">Host</TabsTrigger>
+              <TabsTrigger value="spawned">Spawned</TabsTrigger>
               <TabsTrigger value="join">My Games</TabsTrigger>
             </TabsList>
           </div>
@@ -351,15 +386,12 @@ function LobbyStation({ onJoin }: { onJoin: (id: number) => void }) {
               </button>
             </div>
 
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Opponent Address</label>
-              <Input
-                placeholder="0x..."
-                value={opponent}
-                onChange={(event) => setOpponent(event.target.value)}
-                className="font-mono"
-              />
-              <p className="text-xs text-muted-foreground">Paste the address of the player you are challenging.</p>
+            <div className="rounded-lg border border-border/70 bg-background/40 p-3">
+              <p className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground">Spawn Mode</p>
+              <p className="mt-1 text-sm text-foreground">Open match</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Spawning creates a public game entry in Spawned Games. Another commander can engage it.
+              </p>
             </div>
 
             <div className="space-y-3 rounded-lg border border-border/70 bg-background/40 p-3">
@@ -405,7 +437,6 @@ function LobbyStation({ onJoin }: { onJoin: (id: number) => void }) {
               className="w-full"
               onClick={handleSpawn}
               disabled={
-                !opponent.trim() ||
                 isLoading ||
                 isSpawning ||
                 !fundedChecklist ||
@@ -417,11 +448,86 @@ function LobbyStation({ onJoin }: { onJoin: (id: number) => void }) {
               ) : (
                 <Sword className="mr-2 h-4 w-4" />
               )}
-              {isStakedMatch ? "Spawn Staked Match" : "Spawn Match"}
+              {isStakedMatch ? "Spawn Open Staked Match" : "Spawn Open Match"}
             </Button>
             {!fundedChecklist && (
               <p className="text-xs text-amber-200/90">Complete funding checklist to enable spawn.</p>
             )}
+          </TabsContent>
+
+          <TabsContent value="spawned" className="space-y-3">
+            <div className="flex items-center justify-between">
+              <p className="text-sm text-muted-foreground">Spawned Games Log</p>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7"
+                onClick={() => refreshSpawnedGames()}
+                disabled={loadingSpawnedGames}
+              >
+                <RefreshCw className={cn("h-4 w-4", loadingSpawnedGames && "animate-spin")} />
+              </Button>
+            </div>
+
+            <ScrollArea className="h-[320px] rounded-md border border-border/70 p-3">
+              {loadingSpawnedGames ? (
+                <div className="flex justify-center py-10">
+                  <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                </div>
+              ) : spawnedGames.length === 0 ? (
+                <div className="py-10 text-center text-sm text-muted-foreground">
+                  No spawned games right now. Spawn one from Host.
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {spawnedGames.map((game) => {
+                    const tokenMeta = getStakeTokenByAddress(game.stakeToken)
+                    const stakeLabel =
+                      game.isStakedMatch && tokenMeta
+                        ? `${formatTokenAmountFromUnits(game.stakeAmount, tokenMeta.option.decimals)} ${tokenMeta.option.label}`
+                        : "No stake"
+
+                    return (
+                      <div
+                        key={game.gameId}
+                        className="flex items-center justify-between rounded-lg border border-border/60 bg-background/50 p-3"
+                      >
+                        <div>
+                          <p className="text-sm font-semibold">Game #{game.gameId}</p>
+                          <p className="font-mono text-xs text-muted-foreground">
+                            Host {truncateAddress(game.host)}
+                          </p>
+                          <p className="mt-1 text-[11px] text-cyan-100/80">{stakeLabel}</p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          {game.isMine ? (
+                            <Badge variant="outline" className="border-amber-500/30 text-amber-100">
+                              Awaiting Engage
+                            </Badge>
+                          ) : (
+                            <Button
+                              size="sm"
+                              onClick={() => handleEngage(game.gameId)}
+                              disabled={engagingGameId !== null}
+                              className="min-w-[88px]"
+                            >
+                              {engagingGameId === game.gameId ? (
+                                <>
+                                  <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+                                  Engaging
+                                </>
+                              ) : (
+                                "Engage"
+                              )}
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </ScrollArea>
           </TabsContent>
 
           <TabsContent value="join" className="space-y-3">
@@ -443,11 +549,11 @@ function LobbyStation({ onJoin }: { onJoin: (id: number) => void }) {
                 <div className="flex justify-center py-10">
                   <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
                 </div>
-              ) : games.length === 0 ? (
+              ) : myGames.length === 0 ? (
                 <div className="py-10 text-center text-sm text-muted-foreground">No active matches detected.</div>
               ) : (
                 <div className="space-y-2">
-                  {games.map((game) => (
+                  {myGames.map((game) => (
                     <button
                       key={game.gameId}
                       onClick={() => onJoin(game.gameId)}

@@ -3,9 +3,14 @@ use starknet::ContractAddress;
 #[starknet::interface]
 pub trait IActions<T> {
     fn spawn_game(ref self: T, opponent: ContractAddress);
+    fn spawn_open_game(ref self: T);
     fn spawn_game_with_stake(
         ref self: T, opponent: ContractAddress, stake_token: ContractAddress, stake_amount: u128,
     );
+    fn spawn_open_game_with_stake(
+        ref self: T, stake_token: ContractAddress, stake_amount: u128,
+    );
+    fn engage_game(ref self: T, game_id: u32);
     fn lock_stake(ref self: T, game_id: u32);
     fn cancel_staked_game(ref self: T, game_id: u32);
     fn commit_board(ref self: T, game_id: u32, merkle_root: felt252);
@@ -190,6 +195,53 @@ pub mod Actions {
             );
         }
 
+        fn spawn_open_game(ref self: ContractState) {
+            let mut world = self.world_defalt();
+            let caller = get_caller_address();
+            let now = get_block_timestamp();
+
+            let mut counter: GameCounter = world.read_model(1);
+            let new_game_id = counter.count + 1;
+
+            let new_game: Game = Game {
+                game_id: new_game_id,
+                player_1: caller,
+                player_2: contract_address_const::<0>(),
+                turn: caller,
+                state: 0,
+                winner: contract_address_const::<0>(),
+                last_action: now,
+                moves_count: 0,
+                stake_token: contract_address_const::<0>(),
+                stake_amount: 0_u128,
+                stake_locked_p1: false,
+                stake_locked_p2: false,
+                stake_settled: true,
+            };
+
+            counter.count = new_game_id;
+            world.write_model(@counter);
+            world.write_model(@new_game);
+
+            world.emit_event(
+                @game_spawned {
+                    game_id: new_game_id,
+                    player_1: caller,
+                    player_2: contract_address_const::<0>(),
+                    turn: caller,
+                    state: 0,
+                    winner: contract_address_const::<0>(),
+                    last_action: now,
+                    moves_count: 0,
+                    stake_token: contract_address_const::<0>(),
+                    stake_amount: 0_u128,
+                    stake_locked_p1: false,
+                    stake_locked_p2: false,
+                    stake_settled: true,
+                },
+            );
+        }
+
         fn spawn_game_with_stake(
             ref self: ContractState,
             opponent: ContractAddress,
@@ -251,6 +303,101 @@ pub mod Actions {
                     player: caller,
                     token: stake_token,
                     amount: stake_amount,
+                },
+            );
+        }
+
+        fn spawn_open_game_with_stake(
+            ref self: ContractState, stake_token: ContractAddress, stake_amount: u128,
+        ) {
+            let mut world = self.world_defalt();
+            let caller = get_caller_address();
+            let now = get_block_timestamp();
+
+            assert!(stake_amount > 0_u128, "Invalid stake amount");
+            assert!(stake_token != contract_address_const::<0>(), "Invalid stake token");
+
+            pull_stake(caller, stake_token, stake_amount);
+
+            let mut counter: GameCounter = world.read_model(1);
+            let new_game_id = counter.count + 1;
+
+            let new_game: Game = Game {
+                game_id: new_game_id,
+                player_1: caller,
+                player_2: contract_address_const::<0>(),
+                turn: caller,
+                state: 0,
+                winner: contract_address_const::<0>(),
+                last_action: now,
+                moves_count: 0,
+                stake_token,
+                stake_amount,
+                stake_locked_p1: true,
+                stake_locked_p2: false,
+                stake_settled: false,
+            };
+
+            counter.count = new_game_id;
+            world.write_model(@counter);
+            world.write_model(@new_game);
+
+            world.emit_event(
+                @game_spawned {
+                    game_id: new_game_id,
+                    player_1: caller,
+                    player_2: contract_address_const::<0>(),
+                    turn: caller,
+                    state: 0,
+                    winner: contract_address_const::<0>(),
+                    last_action: now,
+                    moves_count: 0,
+                    stake_token,
+                    stake_amount,
+                    stake_locked_p1: true,
+                    stake_locked_p2: false,
+                    stake_settled: false,
+                },
+            );
+            world.emit_event(
+                @stake_locked {
+                    game_id: new_game_id,
+                    player: caller,
+                    token: stake_token,
+                    amount: stake_amount,
+                },
+            );
+        }
+
+        fn engage_game(ref self: ContractState, game_id: u32) {
+            let mut world = self.world_defalt();
+            let caller = get_caller_address();
+            let mut game: Game = world.read_model(game_id);
+
+            assert!(game.state == 0, "Game is not in setup phase");
+            assert!(game.player_1 != caller, "Host cannot engage own game");
+            assert!(game.player_2 == contract_address_const::<0>(), "Game already engaged");
+
+            game.player_2 = caller;
+            game.last_action = get_block_timestamp();
+            world.write_model(@game);
+
+            // Re-emit canonical game snapshot so clients can update participant state from events only.
+            world.emit_event(
+                @game_spawned {
+                    game_id,
+                    player_1: game.player_1,
+                    player_2: game.player_2,
+                    turn: game.turn,
+                    state: game.state,
+                    winner: game.winner,
+                    last_action: game.last_action,
+                    moves_count: game.moves_count,
+                    stake_token: game.stake_token,
+                    stake_amount: game.stake_amount,
+                    stake_locked_p1: game.stake_locked_p1,
+                    stake_locked_p2: game.stake_locked_p2,
+                    stake_settled: game.stake_settled,
                 },
             );
         }
