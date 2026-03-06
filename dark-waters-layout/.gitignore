@@ -9,4 +9,7 @@ instrumentation-client.ts
 node_modules/
 .next/
 .env*.local
+.env.bot
 .DS_Store
+.cartridge-bot-session/
+.bot-data/

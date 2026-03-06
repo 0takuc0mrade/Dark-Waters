@@ -18,6 +18,12 @@ export const SEPOLIA_CONFIG = {
     process.env.NEXT_PUBLIC_TORII_URL ??
     "",
 
+  /** Optional bot account used for "Play vs Bot" matches */
+  BOT_ADDRESS:
+    process.env.NEXT_PUBLIC_SEPOLIA_BOT_ADDRESS ??
+    process.env.NEXT_PUBLIC_BOT_ADDRESS ??
+    "",
+
   /** Block at which the world was deployed */
   DEPLOYED_BLOCK: 6587147,
 

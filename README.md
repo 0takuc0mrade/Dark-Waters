@@ -88,6 +88,7 @@ Set env vars in `dark-waters-layout/.env.local`:
 
 ```bash
 NEXT_PUBLIC_SEPOLIA_TORII_URL=https://<your-torii-endpoint>
+NEXT_PUBLIC_SEPOLIA_BOT_ADDRESS=0x<bot-account-address>
 NEXT_PUBLIC_SEPOLIA_STRK_TOKEN_ADDRESS=0x...
 NEXT_PUBLIC_SEPOLIA_WBTC_TOKEN_ADDRESS=0x...
 ```
@@ -99,6 +100,71 @@ cd dark-waters-layout
 npm install
 npm run dev
 ```
+
+### 1b) Bot Runner (Play vs Bot)
+
+Use the backend bot worker to automate the bot account for direct `spawn_game(bot)` matches.
+
+```bash
+cd dark-waters-layout
+BOT_TORII_URL=https://<your-torii-endpoint> \
+npm run bot:run
+```
+
+Production flow (hands-off for players):
+
+1. Bootstrap session one time (interactive):
+
+```bash
+cd dark-waters-layout
+cp .env.bot.example .env.bot
+set -a && source .env.bot && set +a
+npm run bot:bootstrap
+```
+
+Open the printed Controller URL, approve policies, and let the process exit.
+
+If you see `EACCES` on `/var/lib/...`, use a user-writable path for:
+- `BOT_SESSION_BASE_PATH` (example: `${HOME}/.dark-waters-bot/session`)
+- `BOT_STATE_PATH` (example: `${HOME}/.dark-waters-bot/bot-state.json`)
+
+2. Start non-interactive daemon mode:
+
+```bash
+cd dark-waters-layout
+set -a && source .env.bot && set +a
+npm run bot:run:prod
+```
+
+3. Keep it always-on with PM2:
+
+```bash
+cd dark-waters-layout
+set -a && source .env.bot && set +a
+pm2 start ecosystem.bot.config.cjs --update-env
+pm2 save
+pm2 startup
+```
+
+4. Monitor liveness (only if `BOT_HEALTH_PORT` is set to a non-zero port):
+
+```bash
+curl -s http://127.0.0.1:<BOT_HEALTH_PORT>/health
+```
+
+Required/important envs:
+- `BOT_TORII_URL`
+- `BOT_ADDRESS` (recommended safety check; must match authorized Controller account)
+- `BOT_ALLOW_INTERACTIVE_AUTH=false` in production daemon runs
+- `BOT_SESSION_BASE_PATH` on persistent disk (do not use ephemeral paths in production)
+
+Optional envs:
+- `BOT_POLL_MS` (default `4000`)
+- `BOT_BOARD_SEED` (for deterministic fleet generation)
+- `BOT_RPC_URL`, `BOT_WORLD_ADDRESS`, `BOT_ACTIONS_ADDRESS`
+- `BOT_SESSION_BASE_PATH` (or `CARTRIDGE_STORAGE_PATH`) for persisted session files
+- `BOT_CHAIN_ID` (default `SN_SEPOLIA` chain id)
+- `BOT_HEALTH_PORT` (default disabled `0`; set e.g. `8787` for monitoring)
 
 ### 2) Contract Tests
 

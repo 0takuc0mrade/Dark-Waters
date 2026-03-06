@@ -5,6 +5,7 @@ import { useAccount } from "@starknet-react/core"
 import { Amount, fromAddress } from "starkzap"
 import {
   Anchor,
+  Bot,
   CheckCircle2,
   Compass,
   Copy,
@@ -53,6 +54,14 @@ type CanonicalStage = "Lobby" | "Placement" | "Combat" | "Debrief"
 
 function truncateAddress(address: string): string {
   return `${address.slice(0, 8)}...${address.slice(-6)}`
+}
+
+function sameAddress(left: string, right: string): boolean {
+  try {
+    return BigInt(left) === BigInt(right)
+  } catch {
+    return left.toLowerCase() === right.toLowerCase()
+  }
 }
 
 function resolveStage(gameId: number | null, phase: "Setup" | "Playing" | "Finished" | null): CanonicalStage {
@@ -149,7 +158,7 @@ function LobbyStation({ onJoin }: { onJoin: (id: number) => void }) {
   const { address } = useWallet()
   const { account } = useAccount()
   const { toast } = useToast()
-  const { spawnOpenGame, spawnOpenGameWithStake, engageGame, isLoading } = useGameActions()
+  const { spawnGame, spawnOpenGame, spawnOpenGameWithStake, engageGame, isLoading } = useGameActions()
   const { games: myGames, isLoading: loadingGames, refresh } = useMyGames()
   const {
     games: spawnedGames,
@@ -161,11 +170,13 @@ function LobbyStation({ onJoin }: { onJoin: (id: number) => void }) {
 
   const [activeTab, setActiveTab] = useState("spawned")
   const [fundedChecklist, setFundedChecklist] = useState(false)
+  const [hostMode, setHostMode] = useState<"open" | "bot">("open")
   const [isStakedMatch, setIsStakedMatch] = useState(false)
   const [stakeToken, setStakeToken] = useState<StakeTokenSymbol>("STRK")
   const [stakeAmount, setStakeAmount] = useState("0.10")
   const [isSpawning, setIsSpawning] = useState(false)
   const [engagingGameId, setEngagingGameId] = useState<number | null>(null)
+  const botAddress = useMemo(() => SEPOLIA_CONFIG.BOT_ADDRESS.trim(), [])
 
   useEffect(() => {
     setFundedChecklist(localStorage.getItem(LS_ONBOARDING_FUNDED) === "true")
@@ -184,10 +195,22 @@ function LobbyStation({ onJoin }: { onJoin: (id: number) => void }) {
     try {
       const tokenConfig = STAKE_TOKEN_OPTIONS[stakeToken]
       let result:
+        | Awaited<ReturnType<typeof spawnGame>>
         | Awaited<ReturnType<typeof spawnOpenGame>>
         | Awaited<ReturnType<typeof spawnOpenGameWithStake>>
 
-      if (isStakedMatch) {
+      if (hostMode === "bot") {
+        if (!botAddress) {
+          toast({
+            title: "Bot unavailable",
+            description: "Set NEXT_PUBLIC_SEPOLIA_BOT_ADDRESS to enable Play vs Bot mode.",
+            variant: "destructive",
+          })
+          return
+        }
+
+        result = await spawnGame(botAddress)
+      } else if (isStakedMatch) {
         const token = getStakeToken(stakeToken)
         if (!token || !tokenConfig.address) {
           toast({
@@ -266,10 +289,28 @@ function LobbyStation({ onJoin }: { onJoin: (id: number) => void }) {
       }
 
       if (!createdGameId) {
-        toast({ title: "Game spawned", description: "Open game submitted. Refresh spawned logs to engage." })
+        toast({
+          title: "Game spawned",
+          description:
+            hostMode === "bot"
+              ? "Bot duel submitted. Refresh your games list to continue."
+              : "Open game submitted. Refresh spawned logs to engage.",
+        })
         refreshSpawnedGames()
         refresh()
-        setActiveTab("spawned")
+        setActiveTab(hostMode === "bot" ? "join" : "spawned")
+        return
+      }
+
+      if (hostMode === "bot") {
+        toast({
+          title: "Bot duel created",
+          description: `Game #${createdGameId} started. You are now facing the bot.`,
+        })
+        refreshSpawnedGames()
+        refresh()
+        setActiveTab("join")
+        onJoin(createdGameId)
         return
       }
 
@@ -295,8 +336,12 @@ function LobbyStation({ onJoin }: { onJoin: (id: number) => void }) {
       setIsSpawning(false)
     }
   }, [
+    botAddress,
+    hostMode,
     isSpawning,
     isStakedMatch,
+    onJoin,
+    spawnGame,
     spawnOpenGame,
     spawnOpenGameWithStake,
     stakeAmount,
@@ -387,51 +432,82 @@ function LobbyStation({ onJoin }: { onJoin: (id: number) => void }) {
             </div>
 
             <div className="rounded-lg border border-border/70 bg-background/40 p-3">
-              <p className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground">Spawn Mode</p>
-              <p className="mt-1 text-sm text-foreground">Open match</p>
-              <p className="mt-1 text-xs text-muted-foreground">
-                Spawning creates a public game entry in Spawned Games. Another commander can engage it.
+              <p className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground">Match Type</p>
+              <div className="mt-2 grid grid-cols-2 gap-2">
+                <Button
+                  type="button"
+                  variant={hostMode === "open" ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => setHostMode("open")}
+                >
+                  <Waves className="mr-2 h-3.5 w-3.5" />
+                  Open Match
+                </Button>
+                <Button
+                  type="button"
+                  variant={hostMode === "bot" ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => {
+                    setHostMode("bot")
+                    setIsStakedMatch(false)
+                  }}
+                >
+                  <Bot className="mr-2 h-3.5 w-3.5" />
+                  Play vs Bot
+                </Button>
+              </div>
+              <p className="mt-2 text-xs text-muted-foreground">
+                {hostMode === "open"
+                  ? "Open match creates a public game entry in Spawned Games."
+                  : "Bot match creates a direct game against your configured bot wallet (no stake)."}
               </p>
-            </div>
-
-            <div className="space-y-3 rounded-lg border border-border/70 bg-background/40 p-3">
-              <label className="flex items-center gap-2 text-sm font-medium">
-                <input
-                  type="checkbox"
-                  checked={isStakedMatch}
-                  onChange={(event) => setIsStakedMatch(event.target.checked)}
-                  className="h-4 w-4 rounded border-border bg-background"
-                />
-                Enable staked match
-              </label>
-
-              {isStakedMatch && (
-                <div className="space-y-2">
-                  <div className="grid grid-cols-2 gap-2">
-                    <select
-                      value={stakeToken}
-                      onChange={(event) => setStakeToken(event.target.value as StakeTokenSymbol)}
-                      className="h-10 rounded-md border border-input bg-background px-3 text-sm"
-                    >
-                      <option value="STRK">STRK</option>
-                      <option value="WBTC">WBTC</option>
-                    </select>
-                    <Input
-                      value={stakeAmount}
-                      onChange={(event) => setStakeAmount(event.target.value)}
-                      placeholder="0.10"
-                      inputMode="decimal"
-                    />
-                  </div>
-                  <p className="text-xs text-muted-foreground">Each player locks this amount. Winner takes the combined pool.</p>
-                  {!getStakeToken(stakeToken) && (
-                    <p className="text-xs text-amber-200">
-                      Configure token address: NEXT_PUBLIC_SEPOLIA_{stakeToken}_TOKEN_ADDRESS
-                    </p>
-                  )}
-                </div>
+              {hostMode === "bot" && !botAddress && (
+                <p className="mt-2 text-xs text-amber-200">
+                  Configure NEXT_PUBLIC_SEPOLIA_BOT_ADDRESS to enable bot duels.
+                </p>
               )}
             </div>
+
+            {hostMode === "open" && (
+              <div className="space-y-3 rounded-lg border border-border/70 bg-background/40 p-3">
+                <label className="flex items-center gap-2 text-sm font-medium">
+                  <input
+                    type="checkbox"
+                    checked={isStakedMatch}
+                    onChange={(event) => setIsStakedMatch(event.target.checked)}
+                    className="h-4 w-4 rounded border-border bg-background"
+                  />
+                  Enable staked match
+                </label>
+
+                {isStakedMatch && (
+                  <div className="space-y-2">
+                    <div className="grid grid-cols-2 gap-2">
+                      <select
+                        value={stakeToken}
+                        onChange={(event) => setStakeToken(event.target.value as StakeTokenSymbol)}
+                        className="h-10 rounded-md border border-input bg-background px-3 text-sm"
+                      >
+                        <option value="STRK">STRK</option>
+                        <option value="WBTC">WBTC</option>
+                      </select>
+                      <Input
+                        value={stakeAmount}
+                        onChange={(event) => setStakeAmount(event.target.value)}
+                        placeholder="0.10"
+                        inputMode="decimal"
+                      />
+                    </div>
+                    <p className="text-xs text-muted-foreground">Each player locks this amount. Winner takes the combined pool.</p>
+                    {!getStakeToken(stakeToken) && (
+                      <p className="text-xs text-amber-200">
+                        Configure token address: NEXT_PUBLIC_SEPOLIA_{stakeToken}_TOKEN_ADDRESS
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
 
             <Button
               className="w-full"
@@ -440,15 +516,22 @@ function LobbyStation({ onJoin }: { onJoin: (id: number) => void }) {
                 isLoading ||
                 isSpawning ||
                 !fundedChecklist ||
-                (isStakedMatch && !getStakeToken(stakeToken))
+                (hostMode === "open" && isStakedMatch && !getStakeToken(stakeToken)) ||
+                (hostMode === "bot" && !botAddress)
               }
             >
               {isLoading || isSpawning ? (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : hostMode === "bot" ? (
+                <Bot className="mr-2 h-4 w-4" />
               ) : (
                 <Sword className="mr-2 h-4 w-4" />
               )}
-              {isStakedMatch ? "Spawn Open Staked Match" : "Spawn Open Match"}
+              {hostMode === "bot"
+                ? "Start Bot Duel"
+                : isStakedMatch
+                ? "Spawn Open Staked Match"
+                : "Spawn Open Match"}
             </Button>
             {!fundedChecklist && (
               <p className="text-xs text-amber-200/90">Complete funding checklist to enable spawn.</p>
@@ -561,7 +644,9 @@ function LobbyStation({ onJoin }: { onJoin: (id: number) => void }) {
                     >
                       <div>
                         <p className="text-sm font-semibold">Game #{game.gameId}</p>
-                        <p className="font-mono text-xs text-muted-foreground">vs {truncateAddress(game.opponent)}</p>
+                        <p className="font-mono text-xs text-muted-foreground">
+                          vs {botAddress && sameAddress(game.opponent, botAddress) ? "BOT" : truncateAddress(game.opponent)}
+                        </p>
                       </div>
                       <Badge variant="outline" className="border-cyan-500/30 text-cyan-100">
                         Engage

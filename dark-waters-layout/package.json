@@ -6,7 +6,10 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "bot:run": "node scripts/bot-runner.mjs",
+    "bot:bootstrap": "BOT_ALLOW_INTERACTIVE_AUTH=true BOT_EXIT_AFTER_SESSION=true node scripts/bot-runner.mjs",
+    "bot:run:prod": "BOT_ALLOW_INTERACTIVE_AUTH=false node scripts/bot-runner.mjs"
   },
   "dependencies": {
     "@cartridge/connector": "^0.13.7",
