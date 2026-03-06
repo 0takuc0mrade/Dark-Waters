@@ -3,6 +3,12 @@ import { RpcProvider } from "starknet"
 import { useAccount } from "@starknet-react/core"
 import { SEPOLIA_CONFIG } from "@/src/config/sepolia-config"
 import {
+  queryAllGamesFromDojo,
+  queryBoardCommitmentsForGameFromDojo,
+  type DojoBoardCommitmentModel,
+  type DojoGameModel,
+} from "@/src/dojo/sdk-client"
+import {
   computeEventId,
   eventBlockNumber,
   loadCheckpoint,
@@ -302,6 +308,64 @@ function deriveState(gameId: number, address: string, cache: ParsedGameCache): G
   }
 }
 
+function deriveStateFromDojoModels(
+  gameId: number,
+  address: string,
+  game: DojoGameModel,
+  commitments: DojoBoardCommitmentModel[]
+): GameState {
+  const player1 = game.player1
+  const player2 = game.player2
+  const isPlayer1 = sameAddress(address, player1)
+  const isPlayer2 = sameAddress(address, player2)
+
+  const myCommit = commitments.some(
+    (entry) => sameAddress(entry.player, address) && entry.isCommitted
+  )
+  const p1Committed = commitments.some(
+    (entry) => sameAddress(entry.player, player1) && entry.isCommitted
+  )
+  const p2Committed = commitments.some(
+    (entry) => sameAddress(entry.player, player2) && entry.isCommitted
+  )
+  const opponentCommitted = isPlayer1 ? p2Committed : isPlayer2 ? p1Committed : false
+
+  const phase: GamePhase =
+    game.state >= 2 ? "Finished" : game.state === 1 ? "Playing" : "Setup"
+  const isActive = phase !== "Finished"
+  const winner = sameAddress(game.winner, "0x0") ? null : game.winner
+
+  const stakeAmount = parseBigIntString(game.stakeAmount, "0")
+  const stakeToken = sameAddress(game.stakeToken, "0x0") ? null : game.stakeToken
+  const hasStakeToken = Boolean(stakeToken)
+  const isStakedMatch = hasStakeToken && BigInt(stakeAmount) > BigInt(0)
+
+  const myStakeLocked = !isStakedMatch || (isPlayer1 ? game.stakeLockedP1 : game.stakeLockedP2)
+  const opponentStakeLocked =
+    !isStakedMatch || (isPlayer1 ? game.stakeLockedP2 : game.stakeLockedP1)
+
+  return {
+    gameId,
+    player1,
+    player2,
+    isPlayer1,
+    isPlayer2,
+    isMyTurn: isActive ? sameAddress(game.turn, address) : false,
+    isActive,
+    winner,
+    phase,
+    isMyCommit: myCommit,
+    opponentCommitted,
+    isStakedMatch,
+    stakeToken: isStakedMatch ? stakeToken : null,
+    stakeAmount,
+    myStakeLocked,
+    opponentStakeLocked,
+    stakeSettled: !isStakedMatch || game.stakeSettled,
+    stakeSettlementTxHash: null,
+  }
+}
+
 export const useGameState = (gameId: number | null) => {
   const { address } = useAccount()
   const [gameState, setGameState] = useState<GameState | null>(null)
@@ -352,6 +416,21 @@ export const useGameState = (gameId: number | null) => {
 
     const poll = async () => {
       try {
+        const sdkGames = await queryAllGamesFromDojo()
+        if (sdkGames) {
+          const sdkGame = sdkGames.find((entry) => entry.gameId === gameId) ?? null
+          if (sdkGame) {
+            const sdkCommitments =
+              (await queryBoardCommitmentsForGameFromDojo(gameId)) ?? []
+            if (!cancelled) {
+              setGameState(
+                deriveStateFromDojoModels(gameId, address, sdkGame, sdkCommitments)
+              )
+              setIsLoading(false)
+            }
+          }
+        }
+
         await syncOne(GAME_SPAWNED_EVENT_HASH, (event) => {
           if (!event.data || Number(event.data[1]) !== gameId) return
 
@@ -468,6 +547,29 @@ export const useSpawnedGames = () => {
   const fetchSpawnedGames = useCallback(async () => {
     setIsLoading(true)
     try {
+      const sdkGames = await queryAllGamesFromDojo()
+      if (sdkGames) {
+        const openGames = sdkGames
+          .filter((game) => game.state === 0 && sameAddress(game.player2, "0x0"))
+          .sort((a, b) => b.gameId - a.gameId)
+          .map((game) => {
+            const stakeValue = BigInt(parseBigIntString(game.stakeAmount, "0"))
+            const stakeToken = sameAddress(game.stakeToken, "0x0") ? null : game.stakeToken
+            const isStakedMatch = Boolean(stakeToken) && stakeValue > BigInt(0)
+            return {
+              gameId: game.gameId,
+              host: game.player1,
+              stakeToken,
+              stakeAmount: game.stakeAmount,
+              isStakedMatch,
+              isMine: address ? sameAddress(game.player1, address) : false,
+            }
+          })
+
+        setGames(openGames)
+        return
+      }
+
       const events = await fetchEventsSince(
         provider.current,
         GAME_SPAWNED_EVENT_HASH,
@@ -572,6 +674,25 @@ export const useMyGames = () => {
   const fetchGames = useCallback(async () => {
     if (!address) return
     setIsLoading(true)
+
+    const sdkGames = await queryAllGamesFromDojo()
+    if (sdkGames) {
+      const myGames = sdkGames
+        .filter((game) => sameAddress(game.player1, address) || sameAddress(game.player2, address))
+        .sort((a, b) => b.gameId - a.gameId)
+        .map((game) => {
+          const amPlayer1 = sameAddress(game.player1, address)
+          return {
+            gameId: game.gameId,
+            opponent: amPlayer1 ? game.player2 : game.player1,
+            isTurn: sameAddress(game.turn, address),
+          }
+        })
+
+      setGames(myGames)
+      setIsLoading(false)
+      return
+    }
 
     const scope = `my-games:${CACHE_SCHEMA}:${DEPLOYMENT_SCOPE}:${address.toLowerCase()}`
     const checkpoint = loadCheckpoint(scope, SEPOLIA_CONFIG.DEPLOYED_BLOCK)

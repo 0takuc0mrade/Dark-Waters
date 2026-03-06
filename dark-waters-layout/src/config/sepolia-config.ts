@@ -12,6 +12,12 @@ export const SEPOLIA_CONFIG = {
   /** Cartridge Sepolia RPC */
   RPC_URL: "https://api.cartridge.gg/x/starknet/sepolia",
 
+  /** Torii indexer endpoint used by Dojo SDK reads */
+  TORII_URL:
+    process.env.NEXT_PUBLIC_SEPOLIA_TORII_URL ??
+    process.env.NEXT_PUBLIC_TORII_URL ??
+    "",
+
   /** Block at which the world was deployed */
   DEPLOYED_BLOCK: 6587147,
 

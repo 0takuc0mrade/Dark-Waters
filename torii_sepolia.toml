@@ -1,0 +1,9 @@
+rpc = "https://api.cartridge.gg/x/starknet/sepolia"
+world_address = "0x079e3198f644ce7761f1add8cdde043be8a8726d02ef9904d6015205da8eb1a1"
+
+[indexing]
+allowed_origins = ["https://dark-waters-m2fn.vercel.app", "http://localhost:3000"]
+index_pending = true
+index_transactions = false
+polling_interval = 1000
+

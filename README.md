@@ -87,6 +87,7 @@ Live app: https://dark-waters-m2fn.vercel.app/
 Set env vars in `dark-waters-layout/.env.local`:
 
 ```bash
+NEXT_PUBLIC_SEPOLIA_TORII_URL=https://<your-torii-endpoint>
 NEXT_PUBLIC_SEPOLIA_STRK_TOKEN_ADDRESS=0x...
 NEXT_PUBLIC_SEPOLIA_WBTC_TOKEN_ADDRESS=0x...
 ```
