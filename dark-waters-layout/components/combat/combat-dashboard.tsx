@@ -19,7 +19,11 @@ import { CommanderProfilePanel } from "./commander-profile-panel"
 import { PostMatchSummary } from "./post-match-summary"
 import { Button } from "@/components/ui/button"
 
-export function CombatDashboard() {
+export function CombatDashboard({
+  onExitLobby,
+}: {
+  onExitLobby?: () => void
+}) {
   const { address } = useWallet()
   const {
     isPlayerTurn,
@@ -186,6 +190,16 @@ export function CombatDashboard() {
               onClick={() => setSummaryOpen(true)}
             >
               View Debrief
+            </Button>
+          )}
+          {onExitLobby && (
+            <Button
+              size="sm"
+              variant="ghost"
+              className="mt-1 h-7 text-[11px]"
+              onClick={onExitLobby}
+            >
+              Exit to Lobby
             </Button>
           )}
         </div>

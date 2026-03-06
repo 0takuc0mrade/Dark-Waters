@@ -382,8 +382,18 @@ export const useGameState = (gameId: number | null) => {
     let cancelled = false
     setIsLoading(true)
     const cache = loadCache(gameId, address)
-    const fromCache = deriveState(gameId, address, cache)
-    if (fromCache) setGameState(fromCache)
+    const applyState = (next: GameState | null) => {
+      if (cancelled || !next) return
+      setGameState((previous) => {
+        if (!previous) return next
+        if (previous.gameId !== next.gameId) return next
+        // Keep the UI stable once a game is finished; avoid regressing due indexer lag.
+        if (previous.phase === "Finished" && next.phase !== "Finished") return previous
+        return next
+      })
+    }
+
+    applyState(deriveState(gameId, address, cache))
 
     const syncOne = async (
       eventHash: string,
@@ -422,12 +432,8 @@ export const useGameState = (gameId: number | null) => {
           if (sdkGame) {
             const sdkCommitments =
               (await queryBoardCommitmentsForGameFromDojo(gameId)) ?? []
-            if (!cancelled) {
-              setGameState(
-                deriveStateFromDojoModels(gameId, address, sdkGame, sdkCommitments)
-              )
-              setIsLoading(false)
-            }
+            applyState(deriveStateFromDojoModels(gameId, address, sdkGame, sdkCommitments))
+            if (!cancelled) setIsLoading(false)
           }
         }
 
@@ -500,7 +506,7 @@ export const useGameState = (gameId: number | null) => {
 
         saveCache(gameId, address, cache)
         if (cancelled) return
-        setGameState(deriveState(gameId, address, cache))
+        applyState(deriveState(gameId, address, cache))
       } catch (error) {
         logEvent("error", {
           code: ERROR_CODES.EVENT_POLL_FAILED,

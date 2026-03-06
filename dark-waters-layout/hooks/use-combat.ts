@@ -168,6 +168,11 @@ export function useCombat() {
     if (stored) setGameId(Number(stored))
   }, [])
 
+  const exitGame = useCallback(() => {
+    localStorage.removeItem(LS_GAME_ID)
+    setGameId(null)
+  }, [])
+
   const { gameState } = useGameState(gameId)
   const canFire = isPlayerTurn && !isAwaitingTurnHandoff
 
@@ -493,5 +498,6 @@ export function useCombat() {
     applyRevealedAttack,
     applyIncomingAttack,
     gameId,
+    exitGame,
   }
 }

@@ -6,6 +6,7 @@ import {
   Anchor,
   Crosshair,
   Loader2,
+  LogOut,
   Radar,
   Shield,
   Waves,
@@ -156,6 +157,7 @@ export function DashboardContent() {
     applyRevealedAttack,
     applyIncomingAttack,
     gameId,
+    exitGame,
   } = useCombat()
 
   const {
@@ -347,6 +349,22 @@ export function DashboardContent() {
                       </span>
                       <span className="text-[11px] text-cyan-100/65">Start/resume match</span>
                     </Link>
+                  </Button>
+
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={exitGame}
+                    disabled={!gameId}
+                    className="h-auto flex-col items-start gap-1 rounded-lg border-cyan-200/30 bg-cyan-400/5 px-3 py-3 text-left hover:bg-cyan-400/15"
+                  >
+                    <LogOut className="h-4 w-4 text-cyan-100" />
+                    <span className="text-xs font-semibold uppercase tracking-[0.15em] text-cyan-50">
+                      Exit
+                    </span>
+                    <span className="text-[11px] text-cyan-100/65">
+                      {gameId ? "Clear active match state" : "No active game"}
+                    </span>
                   </Button>
 
                   <Button

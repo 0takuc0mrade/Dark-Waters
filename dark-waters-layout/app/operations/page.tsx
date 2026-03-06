@@ -757,17 +757,7 @@ export default function Page() {
     !gameState.stakeSettled
   const isLobbyStage = stage === "Lobby"
   const showMobileCommandDock = Boolean(gameId)
-
-  if (gameId && !gameState && loadingState) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-background">
-        <div className="space-y-2 text-center">
-          <Loader2 className="mx-auto h-8 w-8 animate-spin text-cyan-200" />
-          <p className="text-sm text-muted-foreground">Synchronizing game state...</p>
-        </div>
-      </div>
-    )
-  }
+  const isSyncingGameState = Boolean(gameId && !gameState && loadingState)
 
   return (
     <div className="relative min-h-screen overflow-hidden">
@@ -819,6 +809,12 @@ export default function Page() {
                     Stake Settled
                   </Badge>
                 )}
+              {isSyncingGameState && (
+                <Badge variant="outline" className="border-cyan-500/30 text-cyan-100">
+                  <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+                  Synchronizing
+                </Badge>
+              )}
               {!isLobbyStage && payoutTxUrl && (
                 <a href={payoutTxUrl} target="_blank" rel="noopener noreferrer">
                   <Badge variant="outline" className="cursor-pointer border-cyan-500/30 text-cyan-100 hover:bg-cyan-500/10">
@@ -850,6 +846,15 @@ export default function Page() {
         </section>
 
         {!isLobbyStage && <StageRail stage={stage} />}
+
+        {!isLobbyStage && isSyncingGameState && (
+          <Card className="border-border/70 bg-card/80">
+            <CardContent className="flex items-center gap-2 p-3 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin text-cyan-200" />
+              Synchronizing game state in the background...
+            </CardContent>
+          </Card>
+        )}
 
         {!isConnected && !isLobbyStage && (
           <Card className="border-amber-500/30 bg-amber-500/10">
@@ -901,7 +906,9 @@ export default function Page() {
 
         {stage === "Placement" && gameId && gameState && !gameState.isMyCommit && <ShipPlacement />}
 
-        {(stage === "Combat" || stage === "Debrief") && gameId && <CombatDashboard />}
+        {(stage === "Combat" || stage === "Debrief") && gameId && (
+          <CombatDashboard onExitLobby={handleExitGame} />
+        )}
 
         {stage === "Debrief" && gameState && (
           <Card className="border-border/70 bg-card/80">
