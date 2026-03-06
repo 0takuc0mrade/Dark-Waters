@@ -14,6 +14,13 @@ Live app: https://dark-waters-m2fn.vercel.app/
 - Replay-safe sync: checkpointed, deduped event indexing.
 - Modern game UX: proof rail, profile progression, medals, post-match debrief, audio pack.
 
+## Latest Update: Open Lobby Queue
+
+- Host can now spawn a game without pre-selecting an opponent.
+- Spawned matches appear in a shared `Spawned` log.
+- Any other player can click `Engage` to join and activate that game.
+- Supports both no-stake and staked open matches.
+
 ## Player Flow (How To Navigate)
 
 ### 1. Lobby
@@ -21,7 +28,8 @@ Live app: https://dark-waters-m2fn.vercel.app/
 - Open app, connect wallet.
 - On home screen, click `Start / Resume Match` to open `Operations`.
 - In Operations:
-  - `Host`: create a new match (optional stake token + amount).
+  - `Host`: spawn an open match (optional stake token + amount).
+  - `Spawned`: view open matches waiting for an opponent and click `Engage`.
   - `My Games`: resume an existing match.
 
 ### 2. Placement
@@ -53,6 +61,10 @@ Live app: https://dark-waters-m2fn.vercel.app/
 
 ## Protocol Summary
 
+- Open lobby flow:
+  - `spawn_open_game()`
+  - `spawn_open_game_with_stake(stake_token, stake_amount)`
+  - `engage_game(game_id)`
 - Board commit: `commit_board(game_id, merkle_root)`
 - Attack commit-reveal:
   - `commit_attack(game_id, attack_hash)`
@@ -62,10 +74,11 @@ Live app: https://dark-waters-m2fn.vercel.app/
 
 ### Staked Matches (Optional)
 
-- Create staked game: `spawn_game_with_stake(...)`
+- Create open staked game: `spawn_open_game_with_stake(stake_token, stake_amount)`
 - Opponent locks stake: `lock_stake(game_id)`
 - Settlement occurs on valid game end path.
 - Setup timeout safeguards include `cancel_staked_game(game_id)` when eligible.
+- Legacy direct-opponent systems remain available in contract: `spawn_game(opponent)` and `spawn_game_with_stake(opponent, ...)`.
 
 ## Quick Start
 
@@ -146,4 +159,3 @@ Then restart frontend.
 - Private before reveal: fleet layout, attack intent.
 - Public on-chain: commitments, revealed attacks, outcomes, game metadata.
 - Local secrets are encrypted at rest in browser storage and support recovery restore.
-
