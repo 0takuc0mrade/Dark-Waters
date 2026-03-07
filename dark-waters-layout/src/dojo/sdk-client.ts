@@ -221,6 +221,37 @@ export async function queryAllGamesFromDojo(): Promise<DojoGameModel[] | null> {
   }
 }
 
+export async function queryGameByIdFromDojo(gameId: number): Promise<DojoGameModel | null> {
+  const sdk = await getDojoSdk()
+  if (!sdk) return null
+
+  try {
+    let query = new ToriiQueryBuilder<DarkWatersSchema>()
+      .withEntityModels(["dark_waters-Game"])
+      .withLimit(2)
+
+    query = query.withClause(
+      MemberClause<DarkWatersSchema, "dark_waters-Game", "game_id">(
+        "dark_waters-Game",
+        "game_id",
+        "Eq",
+        gameId
+      ).build()
+    )
+
+    const result = await sdk.getEntities({ query })
+    const games = readModels(result, "Game", normalizeGame)
+    return games.find((entry) => entry.gameId === gameId) ?? null
+  } catch (error) {
+    logEvent("warn", {
+      code: "W_DOJO_SDK_QUERY_GAME",
+      message: "Dojo SDK game lookup failed.",
+      metadata: { gameId, error: error instanceof Error ? error.message : String(error) },
+    })
+    return null
+  }
+}
+
 export async function queryBoardCommitmentsForGameFromDojo(
   gameId: number
 ): Promise<DojoBoardCommitmentModel[] | null> {

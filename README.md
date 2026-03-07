@@ -101,6 +101,67 @@ npm install
 npm run dev
 ```
 
+### 1a) In-Game Chat (Supabase)
+
+Run these commands from the project root:
+
+```bash
+cd dark-waters-layout
+npm install --legacy-peer-deps
+npm install @supabase/supabase-js --legacy-peer-deps
+```
+
+Install Supabase CLI (official, project-local):
+
+```bash
+npm install --save-dev supabase
+npx supabase --version
+```
+
+No-install fallback (also official):
+
+```bash
+npx supabase@latest --version
+```
+
+Authenticate and link your hosted Supabase project:
+
+```bash
+cd dark-waters-layout
+npx supabase login
+npx supabase init
+npx supabase link --project-ref <YOUR_SUPABASE_PROJECT_REF>
+```
+
+Apply chat schema migration:
+
+```bash
+cd dark-waters-layout
+npx supabase db push
+```
+
+Required local env in `dark-waters-layout/.env.local`:
+
+```bash
+NEXT_PUBLIC_SUPABASE_URL=https://<YOUR_PROJECT_REF>.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=<YOUR_ANON_KEY>
+SUPABASE_SERVICE_ROLE_KEY=<YOUR_SERVICE_ROLE_KEY>
+CHAT_AUTH_SECRET=<RANDOM_LONG_SECRET>
+```
+
+Generate a secret quickly:
+
+```bash
+openssl rand -hex 32
+```
+
+After env updates:
+
+```bash
+cd dark-waters-layout
+npm run dev
+```
+
 ### 1b) Bot Runner (Play vs Bot)
 
 Use the backend bot worker to automate the bot account for direct `spawn_game(bot)` matches.

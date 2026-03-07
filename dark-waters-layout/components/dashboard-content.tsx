@@ -21,6 +21,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { useWallet } from "@/components/wallet-provider"
+import { GameChatPanel } from "@/components/combat/game-chat-panel"
 import { cn } from "@/lib/utils"
 
 const COLUMN_LABELS = Array.from({ length: GRID_SIZE }, (_, index) => String(index + 1))
@@ -481,6 +482,8 @@ export function DashboardContent() {
                   )}
                 </CardContent>
               </Card>
+
+              <GameChatPanel gameId={gameId} />
             </div>
           </div>
         </div>
