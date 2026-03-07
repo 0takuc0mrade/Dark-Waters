@@ -51,6 +51,12 @@ const LS_GAME_ID = "dark-waters-gameId"
 const LS_ONBOARDING_FUNDED = "dark-waters-onboarding-funded"
 
 type CanonicalStage = "Lobby" | "Placement" | "Combat" | "Debrief"
+type HostMode = "open" | "bot" | "invite"
+
+interface CartridgeResolveResponse {
+  username: string
+  address: string
+}
 
 function truncateAddress(address: string): string {
   return `${address.slice(0, 8)}...${address.slice(-6)}`
@@ -61,6 +67,36 @@ function sameAddress(left: string, right: string): boolean {
     return BigInt(left) === BigInt(right)
   } catch {
     return left.toLowerCase() === right.toLowerCase()
+  }
+}
+
+async function resolveCartridgeUsername(username: string): Promise<CartridgeResolveResponse> {
+  const response = await fetch("/api/cartridge/resolve", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username }),
+  })
+
+  let payload: any = null
+  try {
+    payload = await response.json()
+  } catch {
+    payload = null
+  }
+
+  if (!response.ok) {
+    throw new Error(payload?.error ?? "Failed to resolve Cartridge username.")
+  }
+
+  const resolvedAddress = payload?.address
+  const resolvedUsername = payload?.username
+  if (typeof resolvedAddress !== "string" || typeof resolvedUsername !== "string") {
+    throw new Error("Invalid Cartridge lookup response.")
+  }
+
+  return {
+    address: resolvedAddress,
+    username: resolvedUsername,
   }
 }
 
@@ -170,10 +206,12 @@ function LobbyStation({ onJoin }: { onJoin: (id: number) => void }) {
 
   const [activeTab, setActiveTab] = useState("spawned")
   const [fundedChecklist, setFundedChecklist] = useState(false)
-  const [hostMode, setHostMode] = useState<"open" | "bot">("open")
+  const [hostMode, setHostMode] = useState<HostMode>("open")
   const [isStakedMatch, setIsStakedMatch] = useState(false)
   const [stakeToken, setStakeToken] = useState<StakeTokenSymbol>("STRK")
   const [stakeAmount, setStakeAmount] = useState("0.10")
+  const [inviteUsername, setInviteUsername] = useState("")
+  const [isResolvingInvite, setIsResolvingInvite] = useState(false)
   const [isSpawning, setIsSpawning] = useState(false)
   const [engagingGameId, setEngagingGameId] = useState<number | null>(null)
   const botAddress = useMemo(() => SEPOLIA_CONFIG.BOT_ADDRESS.trim(), [])
@@ -194,6 +232,7 @@ function LobbyStation({ onJoin }: { onJoin: (id: number) => void }) {
 
     try {
       const tokenConfig = STAKE_TOKEN_OPTIONS[stakeToken]
+      let resolvedInvite: CartridgeResolveResponse | null = null
       let result:
         | Awaited<ReturnType<typeof spawnGame>>
         | Awaited<ReturnType<typeof spawnOpenGame>>
@@ -210,6 +249,34 @@ function LobbyStation({ onJoin }: { onJoin: (id: number) => void }) {
         }
 
         result = await spawnGame(botAddress)
+      } else if (hostMode === "invite") {
+        const enteredUsername = inviteUsername.trim()
+        if (!enteredUsername) {
+          toast({
+            title: "Missing opponent",
+            description: "Enter the opponent's Cartridge username.",
+            variant: "destructive",
+          })
+          return
+        }
+
+        setIsResolvingInvite(true)
+        try {
+          resolvedInvite = await resolveCartridgeUsername(enteredUsername)
+        } finally {
+          setIsResolvingInvite(false)
+        }
+
+        if (address && sameAddress(address, resolvedInvite.address)) {
+          toast({
+            title: "Invalid opponent",
+            description: "You cannot invite your own Cartridge account.",
+            variant: "destructive",
+          })
+          return
+        }
+
+        result = await spawnGame(resolvedInvite.address)
       } else if (isStakedMatch) {
         const token = getStakeToken(stakeToken)
         if (!token || !tokenConfig.address) {
@@ -294,18 +361,23 @@ function LobbyStation({ onJoin }: { onJoin: (id: number) => void }) {
           description:
             hostMode === "bot"
               ? "Bot duel submitted. Refresh your games list to continue."
+              : hostMode === "invite"
+              ? "Invite match submitted. Refresh your games list to continue."
               : "Open game submitted. Refresh spawned logs to engage.",
         })
         refreshSpawnedGames()
         refresh()
-        setActiveTab(hostMode === "bot" ? "join" : "spawned")
+        setActiveTab(hostMode === "open" ? "spawned" : "join")
         return
       }
 
-      if (hostMode === "bot") {
+      if (hostMode === "bot" || hostMode === "invite") {
         toast({
-          title: "Bot duel created",
-          description: `Game #${createdGameId} started. You are now facing the bot.`,
+          title: hostMode === "bot" ? "Bot duel created" : "Invite duel created",
+          description:
+            hostMode === "bot"
+              ? `Game #${createdGameId} started. You are now facing the bot.`
+              : `Game #${createdGameId} started against @${resolvedInvite?.username ?? inviteUsername.trim()}.`,
         })
         refreshSpawnedGames()
         refresh()
@@ -336,8 +408,10 @@ function LobbyStation({ onJoin }: { onJoin: (id: number) => void }) {
       setIsSpawning(false)
     }
   }, [
+    address,
     botAddress,
     hostMode,
+    inviteUsername,
     isSpawning,
     isStakedMatch,
     onJoin,
@@ -433,7 +507,7 @@ function LobbyStation({ onJoin }: { onJoin: (id: number) => void }) {
 
             <div className="rounded-lg border border-border/70 bg-background/40 p-3">
               <p className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground">Match Type</p>
-              <div className="mt-2 grid grid-cols-2 gap-2">
+              <div className="mt-2 grid grid-cols-3 gap-2">
                 <Button
                   type="button"
                   variant={hostMode === "open" ? "default" : "outline"}
@@ -455,11 +529,25 @@ function LobbyStation({ onJoin }: { onJoin: (id: number) => void }) {
                   <Bot className="mr-2 h-3.5 w-3.5" />
                   Play vs Bot
                 </Button>
+                <Button
+                  type="button"
+                  variant={hostMode === "invite" ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => {
+                    setHostMode("invite")
+                    setIsStakedMatch(false)
+                  }}
+                >
+                  <Compass className="mr-2 h-3.5 w-3.5" />
+                  Invite Player
+                </Button>
               </div>
               <p className="mt-2 text-xs text-muted-foreground">
                 {hostMode === "open"
                   ? "Open match creates a public game entry in Spawned Games."
-                  : "Bot match creates a direct game against your configured bot wallet (no stake)."}
+                  : hostMode === "bot"
+                  ? "Bot match creates a direct game against your configured bot wallet (no stake)."
+                  : "Invite match creates a direct game against a Cartridge username (no stake)."}
               </p>
               {hostMode === "bot" && !botAddress && (
                 <p className="mt-2 text-xs text-amber-200">
@@ -467,6 +555,23 @@ function LobbyStation({ onJoin }: { onJoin: (id: number) => void }) {
                 </p>
               )}
             </div>
+
+            {hostMode === "invite" && (
+              <div className="space-y-2 rounded-lg border border-border/70 bg-background/40 p-3">
+                <p className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground">Opponent Cartridge Name</p>
+                <Input
+                  value={inviteUsername}
+                  onChange={(event) => setInviteUsername(event.target.value)}
+                  placeholder="@commander_name"
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  spellCheck={false}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Enter the opponent's Cartridge username. Wallet addresses are resolved automatically.
+                </p>
+              </div>
+            )}
 
             {hostMode === "open" && (
               <div className="space-y-3 rounded-lg border border-border/70 bg-background/40 p-3">
@@ -515,20 +620,28 @@ function LobbyStation({ onJoin }: { onJoin: (id: number) => void }) {
               disabled={
                 isLoading ||
                 isSpawning ||
+                isResolvingInvite ||
                 !fundedChecklist ||
                 (hostMode === "open" && isStakedMatch && !getStakeToken(stakeToken)) ||
-                (hostMode === "bot" && !botAddress)
+                (hostMode === "bot" && !botAddress) ||
+                (hostMode === "invite" && !inviteUsername.trim())
               }
             >
               {isLoading || isSpawning ? (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               ) : hostMode === "bot" ? (
                 <Bot className="mr-2 h-4 w-4" />
+              ) : hostMode === "invite" ? (
+                <Compass className="mr-2 h-4 w-4" />
               ) : (
                 <Sword className="mr-2 h-4 w-4" />
               )}
               {hostMode === "bot"
                 ? "Start Bot Duel"
+                : hostMode === "invite"
+                ? isResolvingInvite
+                  ? "Resolving Commander..."
+                  : "Start Invite Duel"
                 : isStakedMatch
                 ? "Spawn Open Staked Match"
                 : "Spawn Open Match"}
