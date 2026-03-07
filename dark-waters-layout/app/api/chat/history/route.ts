@@ -35,6 +35,7 @@ export async function GET(request: NextRequest) {
     const gameId = parseGameId(request.nextUrl.searchParams.get("gameId"))
     const limit = parseLimit(request.nextUrl.searchParams.get("limit"))
     const before = request.nextUrl.searchParams.get("before")
+    const after = request.nextUrl.searchParams.get("after")
 
     if (!gameId) {
       return NextResponse.json({ error: "Missing or invalid gameId" }, { status: 400 })
@@ -46,18 +47,36 @@ export async function GET(request: NextRequest) {
     }
 
     const supabase = getServiceSupabaseClient()
-    let query = supabase
-      .from("chat_messages")
-      .select("id, game_id, sender, message, client_msg_id, created_at")
-      .eq("game_id", gameId)
-      .order("created_at", { ascending: false })
-      .limit(limit)
+    let data: Record<string, unknown>[] | null = null
+    let error: { message: string } | null = null
 
-    if (before) {
-      query = query.lt("created_at", before)
+    if (after) {
+      const response = await supabase
+        .from("chat_messages")
+        .select("id, game_id, sender, message, client_msg_id, created_at")
+        .eq("game_id", gameId)
+        .gt("created_at", after)
+        .order("created_at", { ascending: true })
+        .limit(limit)
+
+      data = response.data
+      error = response.error
+    } else {
+      let query = supabase
+        .from("chat_messages")
+        .select("id, game_id, sender, message, client_msg_id, created_at")
+        .eq("game_id", gameId)
+        .order("created_at", { ascending: false })
+        .limit(limit)
+
+      if (before) {
+        query = query.lt("created_at", before)
+      }
+
+      const response = await query
+      data = response.data
+      error = response.error
     }
-
-    const { data, error } = await query
 
     if (error) {
       return NextResponse.json(
@@ -66,9 +85,8 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    const messages = (data ?? [])
-      .map((row: Record<string, unknown>) => mapMessageRow(row))
-      .reverse()
+    const mappedMessages = (data ?? []).map((row: Record<string, unknown>) => mapMessageRow(row))
+    const messages = after ? mappedMessages : mappedMessages.reverse()
     return NextResponse.json({ messages })
   } catch (error) {
     return NextResponse.json(

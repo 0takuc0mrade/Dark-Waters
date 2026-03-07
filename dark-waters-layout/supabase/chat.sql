@@ -38,28 +38,11 @@ create index if not exists chat_nonces_expiry_idx
 alter table public.chat_messages enable row level security;
 alter table public.chat_nonces enable row level security;
 
--- MVP policy: allow read for realtime subscriptions from anon/authenticated clients.
--- Writes still go through Next.js API using service role.
+-- Chat reads stay private and are served via authenticated API routes.
 drop policy if exists chat_messages_read_policy on public.chat_messages;
-create policy chat_messages_read_policy
-on public.chat_messages
-for select
-to anon, authenticated
-using (true);
 
--- Keep nonce table backend-only.
+create index if not exists chat_messages_rate_sender_idx
+  on public.chat_messages (game_id, sender, created_at desc);
 
--- Realtime stream for inserted messages.
-do $$
-begin
-  if not exists (
-    select 1
-    from pg_publication_tables
-    where pubname = 'supabase_realtime'
-      and schemaname = 'public'
-      and tablename = 'chat_messages'
-  ) then
-    alter publication supabase_realtime add table public.chat_messages;
-  end if;
-end
-$$;
+create index if not exists chat_nonces_rate_address_idx
+  on public.chat_nonces (game_id, address, created_at desc);

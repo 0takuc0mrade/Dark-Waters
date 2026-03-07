@@ -1,11 +1,9 @@
 "use client"
 
 import { useAccount } from "@starknet-react/core"
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import type { RealtimeChannel } from "@supabase/supabase-js"
+import { useCallback, useEffect, useMemo, useState } from "react"
 
 import { normalizeAddress, sameAddress } from "@/src/lib/chat/addresses"
-import { getBrowserSupabaseClient } from "@/src/lib/chat/supabase-browser"
 import type { ChatMessage, ChatChallengePayload } from "@/src/lib/chat/types"
 
 interface ChallengeResponse {
@@ -27,6 +25,8 @@ interface HistoryResponse {
 interface SendResponse {
   message: ChatMessage
 }
+
+const POLL_INTERVAL_MS = 3_000
 
 function toChatMessage(input: unknown): ChatMessage | null {
   if (!input || typeof input !== "object") return null
@@ -70,7 +70,6 @@ export function useGameChat(gameId: number | null) {
   const [isBootstrapping, setIsBootstrapping] = useState(false)
   const [isSending, setIsSending] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const channelRef = useRef<RealtimeChannel | null>(null)
 
   const normalizedAddress = useMemo(() => normalizeAddress(address ?? ""), [address])
 
@@ -85,24 +84,6 @@ export function useGameChat(gameId: number | null) {
   }, [])
 
   useEffect(() => {
-    return () => {
-      const channel = channelRef.current
-      if (channel) {
-        const supabase = getBrowserSupabaseClient()
-        void supabase.removeChannel(channel)
-      }
-      channelRef.current = null
-    }
-  }, [])
-
-  useEffect(() => {
-    const channel = channelRef.current
-    if (channel) {
-      const supabase = getBrowserSupabaseClient()
-      void supabase.removeChannel(channel)
-      channelRef.current = null
-    }
-
     setMessages([])
     setSessionToken(null)
 
@@ -113,6 +94,45 @@ export function useGameChat(gameId: number | null) {
 
     const connectedAccount = account
     let cancelled = false
+    let pollTimer: ReturnType<typeof setTimeout> | null = null
+
+    async function pollHistory(token: string, cursor: string | null): Promise<string | null> {
+      const params = new URLSearchParams({ gameId: String(gameId), limit: "50" })
+      if (cursor) {
+        params.set("after", cursor)
+      }
+
+      const response = await fetch(`/api/chat/history?${params.toString()}`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      })
+
+      const historyJson = (await parseJson(response)) as Partial<HistoryResponse> | null
+      if (!response.ok) {
+        const message =
+          historyJson && typeof (historyJson as Record<string, unknown>).error === "string"
+            ? String((historyJson as Record<string, unknown>).error)
+            : "Failed to sync chat history"
+        throw new Error(message)
+      }
+
+      const parsedMessages = Array.isArray(historyJson?.messages)
+        ? historyJson.messages
+            .map((entry) => toChatMessage(entry))
+            .filter((entry): entry is ChatMessage => Boolean(entry))
+        : []
+
+      for (const entry of parsedMessages) {
+        appendMessage(entry)
+      }
+
+      if (parsedMessages.length === 0) {
+        return cursor
+      }
+
+      return parsedMessages[parsedMessages.length - 1]?.createdAt ?? cursor
+    }
 
     async function bootstrap() {
       setIsBootstrapping(true)
@@ -128,7 +148,6 @@ export function useGameChat(gameId: number | null) {
         })
 
         const challengeJson = (await parseJson(challengeResponse)) as Partial<ChallengeResponse> | null
-
         if (!challengeResponse.ok || !challengeJson?.challenge || !challengeJson.typedData) {
           const message =
             challengeJson && typeof (challengeJson as Record<string, unknown>).error === "string"
@@ -153,7 +172,6 @@ export function useGameChat(gameId: number | null) {
         })
 
         const authJson = (await parseJson(authResponse)) as Partial<AuthResponse> | null
-
         if (!authResponse.ok || !authJson?.token) {
           const message =
             authJson && typeof (authJson as Record<string, unknown>).error === "string"
@@ -163,62 +181,28 @@ export function useGameChat(gameId: number | null) {
         }
 
         if (cancelled) return
-        setSessionToken(authJson.token)
+        const token = authJson.token
+        setSessionToken(token)
 
-        const historyResponse = await fetch(`/api/chat/history?gameId=${gameId}`, {
-          headers: {
-            Authorization: `Bearer ${authJson.token}`,
-          },
-        })
+        let cursor: string | null = null
+        cursor = await pollHistory(token, cursor)
 
-        const historyJson = (await parseJson(historyResponse)) as Partial<HistoryResponse> | null
-
-        if (!historyResponse.ok) {
-          const message =
-            historyJson && typeof (historyJson as Record<string, unknown>).error === "string"
-              ? String((historyJson as Record<string, unknown>).error)
-              : "Failed to load chat history"
-          throw new Error(message)
+        const schedulePoll = () => {
+          if (cancelled) return
+          pollTimer = setTimeout(async () => {
+            try {
+              cursor = await pollHistory(token, cursor)
+            } catch (pollError) {
+              if (!cancelled) {
+                setError(pollError instanceof Error ? pollError.message : String(pollError))
+              }
+            } finally {
+              schedulePoll()
+            }
+          }, POLL_INTERVAL_MS)
         }
 
-        if (cancelled) return
-
-        const parsedHistory = Array.isArray(historyJson?.messages)
-          ? historyJson.messages
-              .map((item) => toChatMessage(item))
-              .filter((entry): entry is ChatMessage => Boolean(entry))
-          : []
-
-        setMessages(parsedHistory)
-
-        const supabase = getBrowserSupabaseClient()
-        const channel = supabase
-          .channel(`game-chat:${gameId}`)
-          .on(
-            "postgres_changes",
-            {
-              event: "INSERT",
-              schema: "public",
-              table: "chat_messages",
-              filter: `game_id=eq.${gameId}`,
-            },
-            (payload: { new: Record<string, unknown> }) => {
-              const mapped = toChatMessage({
-                id: payload.new.id,
-                gameId: payload.new.game_id,
-                sender: payload.new.sender,
-                message: payload.new.message,
-                clientMessageId: payload.new.client_msg_id,
-                createdAt: payload.new.created_at,
-              })
-
-              if (!mapped) return
-              appendMessage(mapped)
-            }
-          )
-
-        channelRef.current = channel
-        await channel.subscribe()
+        schedulePoll()
       } catch (bootstrapError) {
         if (cancelled) return
         setError(bootstrapError instanceof Error ? bootstrapError.message : String(bootstrapError))
@@ -233,11 +217,8 @@ export function useGameChat(gameId: number | null) {
 
     return () => {
       cancelled = true
-      const channel = channelRef.current
-      if (channel) {
-        const supabase = getBrowserSupabaseClient()
-        void supabase.removeChannel(channel)
-        channelRef.current = null
+      if (pollTimer) {
+        clearTimeout(pollTimer)
       }
     }
   }, [account, appendMessage, gameId, normalizedAddress])
@@ -265,7 +246,6 @@ export function useGameChat(gameId: number | null) {
         })
 
         const json = (await parseJson(response)) as Partial<SendResponse> | null
-
         if (!response.ok || !json?.message) {
           const message =
             json && typeof (json as Record<string, unknown>).error === "string"

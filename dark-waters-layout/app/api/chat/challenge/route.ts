@@ -40,11 +40,33 @@ export async function POST(request: Request) {
 
     await requireGameParticipant(gameId, normalizedAddress)
 
+    const supabase = getServiceSupabaseClient()
+    const windowStartIso = new Date(Date.now() - 60_000).toISOString()
+    const { count: recentChallengeCount, error: rateError } = await supabase
+      .from("chat_nonces")
+      .select("id", { head: true, count: "exact" })
+      .eq("game_id", gameId)
+      .eq("address", normalizedAddress)
+      .gte("created_at", windowStartIso)
+
+    if (rateError) {
+      return NextResponse.json(
+        { error: "Challenge rate-check failed", details: rateError.message },
+        { status: 500 }
+      )
+    }
+
+    if ((recentChallengeCount ?? 0) >= 8) {
+      return NextResponse.json(
+        { error: "Too many auth attempts. Please wait a minute and try again." },
+        { status: 429 }
+      )
+    }
+
     const issuedAt = Math.floor(Date.now() / 1000)
     const expiresAt = issuedAt + 60 * 5
     const nonce = makeNonce()
 
-    const supabase = getServiceSupabaseClient()
     const { error } = await supabase.from("chat_nonces").insert({
       game_id: gameId,
       address: normalizedAddress,

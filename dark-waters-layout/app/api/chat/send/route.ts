@@ -56,6 +56,28 @@ export async function POST(request: NextRequest) {
         : randomUUID()
 
     const supabase = getServiceSupabaseClient()
+    const messageRateWindowIso = new Date(Date.now() - 5_000).toISOString()
+    const { count: recentMessageCount, error: rateError } = await supabase
+      .from("chat_messages")
+      .select("id", { head: true, count: "exact" })
+      .eq("game_id", gameId)
+      .eq("sender", session.sub)
+      .gte("created_at", messageRateWindowIso)
+
+    if (rateError) {
+      return NextResponse.json(
+        { error: "Send rate-check failed", details: rateError.message },
+        { status: 500 }
+      )
+    }
+
+    if ((recentMessageCount ?? 0) >= 5) {
+      return NextResponse.json(
+        { error: "Rate limit exceeded. Please slow down and retry." },
+        { status: 429 }
+      )
+    }
+
     const { data, error } = await supabase
       .from("chat_messages")
       .insert({

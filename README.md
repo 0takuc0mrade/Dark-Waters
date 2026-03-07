@@ -140,6 +140,10 @@ cd dark-waters-layout
 npx supabase db push
 ```
 
+This applies both:
+- initial chat tables
+- hardening migration (removes public `chat_messages` read policy and uses API-auth polling)
+
 Required local env in `dark-waters-layout/.env.local`:
 
 ```bash
