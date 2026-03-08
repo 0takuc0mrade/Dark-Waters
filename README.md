@@ -237,6 +237,48 @@ Optional envs:
 scarb test
 ```
 
+### 2.1) Denshokan Sepolia Integration
+
+Dark Waters now targets the official Denshokan production path for Fun Factory listing. The
+`Actions` contract is the minigame surface and should be initialized against the official Sepolia
+Denshokan token:
+
+- token: `0x0142712722e62a38f9c40fcc904610e1a14c70125876ecaaf25d803556734467`
+- registry: `0x040f1ed9880611bb7273bf51fd67123ebbba04c282036e2f81314061f6f9b1a1`
+- renderer: `0x035d01a7689ade1f5b27e50b07c923812580bb91bd0931042a9a2f8ff07dc7ec`
+
+Fresh or rebuilt manifests should leave `dojo_init()` empty and configure Denshokan explicitly
+after migration:
+
+```bash
+sozo -P sepolia build
+bash ./scripts/patch_egs_init_calldata.sh sepolia
+sozo -P sepolia migrate --wait
+```
+
+For already-initialized worlds, run the post-upgrade admin flow:
+
+```bash
+sozo -P sepolia execute dark_waters-Actions configure_denshokan \
+  0x0142712722e62a38f9c40fcc904610e1a14c70125876ecaaf25d803556734467 1 --wait
+
+sozo -P sepolia execute dark_waters-Actions initialize_denshokan --wait
+```
+
+After initialization:
+
+- verify `dark_waters-EgsConfig` contains the Denshokan token and `is_initialized = 1`
+- mint or select a Denshokan token through the app
+- link the token to a game via `link_session`
+- use `_egs` gameplay entrypoints for board commit and combat
+- verify the game appears in the Denshokan `/games` API and then on `https://funfactory.gg/?network=sepolia`
+
+### 2.2) Legacy Helper Contracts
+
+The helper session token, helper registry, and custom callback contracts remain in the repo as
+legacy smoke-test artifacts, but they are not part of the Fun Factory production path anymore.
+Do not use them for Sepolia listing validation.
+
 ### 3) Local Dojo Stack (Docker)
 
 ```bash

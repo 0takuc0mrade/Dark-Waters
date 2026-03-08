@@ -7,8 +7,18 @@ import { Amount, fromAddress } from "starkzap"
 import { useShipPlacement } from "@/hooks/use-ship-placement"
 import { useGameActions } from "@/src/hooks/useGameActions"
 import { useToast } from "@/hooks/use-toast"
+import { Button } from "@/components/ui/button"
 import { useWallet } from "@/components/wallet-provider"
 import { useGameState } from "@/hooks/useGameState"
+import {
+  clearSelectedGameToken,
+  detectNewTokenId,
+  listOwnedDenshokanTokens,
+  randomDenshokanSalt,
+  readSelectedGameToken,
+  type DenshokanTokenRecord,
+  writeSelectedGameToken,
+} from "@/src/lib/denshokan"
 import { createStarkzapWallet } from "@/src/lib/starkzap-wallet-adapter"
 import { getStakeTokenByAddress } from "@/src/lib/stake-token"
 import { SEPOLIA_CONFIG } from "@/src/config/sepolia-config"
@@ -20,6 +30,11 @@ import { ShipControls } from "./ship-controls"
 // ── localStorage keys ────────────────────────────────────────────────
 
 const LS_GAME_ID = "dark-waters-gameId"
+
+function formatTokenId(tokenId: string): string {
+  return `${tokenId.slice(0, 10)}...${tokenId.slice(-6)}`
+}
+
 export function ShipPlacement() {
   const router = useRouter()
   const { account } = useAccount()
@@ -40,12 +55,17 @@ export function ShipPlacement() {
     selectShip,
   } = useShipPlacement()
 
-  const { commitBoard, lockStake } = useGameActions()
+  const { commitBoardEgs, linkSession, lockStake, mintGameToken } = useGameActions()
   const { toast } = useToast()
   const { address } = useWallet()
   const starkzapWallet = useMemo(() => createStarkzapWallet(account), [account])
   const [isCommitting, setIsCommitting] = useState(false)
+  const [isMintingToken, setIsMintingToken] = useState(false)
+  const [isLoadingTokens, setIsLoadingTokens] = useState(false)
+  const [isLinkingToken, setIsLinkingToken] = useState(false)
   const [hydratedGameId, setHydratedGameId] = useState<number | null>(null)
+  const [missionTokens, setMissionTokens] = useState<DenshokanTokenRecord[]>([])
+  const [selectedTokenId, setSelectedTokenId] = useState<string | null>(null)
   const { gameState } = useGameState(hydratedGameId)
 
   useEffect(() => {
@@ -53,6 +73,98 @@ export function ShipPlacement() {
     const gameIdStr = localStorage.getItem(LS_GAME_ID)
     if (gameIdStr) setHydratedGameId(Number(gameIdStr))
   }, [])
+
+  const refreshMissionTokens = useCallback(
+    async (preferredTokenId?: string | null) => {
+      if (!address) {
+        setMissionTokens([])
+        setSelectedTokenId(null)
+        return []
+      }
+
+      setIsLoadingTokens(true)
+      try {
+        const tokens = await listOwnedDenshokanTokens(address)
+        setMissionTokens(tokens)
+
+        const storedTokenId =
+          hydratedGameId !== null ? readSelectedGameToken(hydratedGameId, address) : null
+        const resolvedTokenId =
+          preferredTokenId && tokens.some((token) => token.tokenId === preferredTokenId)
+            ? preferredTokenId
+            : storedTokenId && tokens.some((token) => token.tokenId === storedTokenId)
+            ? storedTokenId
+            : tokens.find((token) => token.playable)?.tokenId ?? tokens[0]?.tokenId ?? null
+
+        setSelectedTokenId(resolvedTokenId)
+
+        if (hydratedGameId !== null) {
+          if (resolvedTokenId) {
+            writeSelectedGameToken(hydratedGameId, address, resolvedTokenId)
+          } else {
+            clearSelectedGameToken(hydratedGameId, address)
+          }
+        }
+
+        return tokens
+      } finally {
+        setIsLoadingTokens(false)
+      }
+    },
+    [address, hydratedGameId]
+  )
+
+  useEffect(() => {
+    void refreshMissionTokens()
+  }, [refreshMissionTokens])
+
+  const handleSelectToken = useCallback(
+    (tokenId: string) => {
+      setSelectedTokenId(tokenId)
+      if (address && hydratedGameId !== null) {
+        writeSelectedGameToken(hydratedGameId, address, tokenId)
+      }
+    },
+    [address, hydratedGameId]
+  )
+
+  const handleMintToken = useCallback(async () => {
+    if (!address) {
+      toast({
+        title: "Wallet Required",
+        description: "Connect your wallet before minting a Denshokan token.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    setIsMintingToken(true)
+    try {
+      const beforeTokenIds = missionTokens.map((token) => token.tokenId)
+      await mintGameToken(address, randomDenshokanSalt())
+      const nextTokens = await refreshMissionTokens()
+      const mintedTokenId = detectNewTokenId(beforeTokenIds, nextTokens)
+
+      if (mintedTokenId) {
+        handleSelectToken(mintedTokenId)
+      }
+
+      toast({
+        title: "Mission token minted",
+        description: mintedTokenId
+          ? `Selected ${formatTokenId(mintedTokenId)} for this match.`
+          : "Token minted successfully. Refresh if it does not appear immediately.",
+      })
+    } catch (error) {
+      toast({
+        title: "Mint failed",
+        description: error instanceof Error ? error.message : "Transaction failed.",
+        variant: "destructive",
+      })
+    } finally {
+      setIsMintingToken(false)
+    }
+  }, [address, handleSelectToken, mintGameToken, missionTokens, refreshMissionTokens, toast])
 
   const handleCellClick = useCallback(
     (row: number, col: number) => {
@@ -93,6 +205,35 @@ export function ShipPlacement() {
       description: "All ships have been recalled to port.",
     })
   }, [resetBoard, toast])
+
+  const ensureLinkedToken = useCallback(
+    async (gameId: number) => {
+      if (!address) {
+        throw new Error("Connect your wallet before linking a Denshokan token.")
+      }
+      if (!selectedTokenId) {
+        throw new Error("Select or mint a Denshokan token before committing your board.")
+      }
+
+      const token = missionTokens.find((entry) => entry.tokenId === selectedTokenId)
+      if (!token) {
+        throw new Error("Selected Denshokan token is no longer available. Refresh and retry.")
+      }
+      if (!token.playable) {
+        throw new Error("Selected Denshokan token is not playable.")
+      }
+
+      setIsLinkingToken(true)
+      try {
+        await linkSession(selectedTokenId, gameId)
+        writeSelectedGameToken(gameId, address, selectedTokenId)
+        return selectedTokenId
+      } finally {
+        setIsLinkingToken(false)
+      }
+    },
+    [address, linkSession, missionTokens, selectedTokenId]
+  )
 
   // ── Confirm & Commit Board On-Chain ────────────────────────────────
 
@@ -156,6 +297,8 @@ export function ShipPlacement() {
     })
 
     try {
+      const tokenId = await ensureLinkedToken(gameId)
+
       if (gameState?.isStakedMatch && !gameState.myStakeLocked) {
         const tokenMeta = getStakeTokenByAddress(gameState.stakeToken)
         if (!tokenMeta) {
@@ -187,7 +330,7 @@ export function ShipPlacement() {
 
       const recoveryPackage = await storeBoardSecrets(gameId, address, board, masterSecret)
 
-      const result = await commitBoard(gameId, rootHex)
+      const result = await commitBoardEgs(tokenId, rootHex)
       if (result) {
         const serialized = JSON.stringify(recoveryPackage)
         try {
@@ -226,11 +369,12 @@ export function ShipPlacement() {
     }
   }, [
     grid,
-    commitBoard,
+    commitBoardEgs,
     lockStake,
     toast,
     router,
     address,
+    ensureLinkedToken,
     gameState,
     hydratedGameId,
     starkzapWallet,
@@ -246,6 +390,77 @@ export function ShipPlacement() {
         <p className="mt-1 text-sm text-muted-foreground">
           Position your ships on the grid. Click to place, rotate to change
           orientation.
+        </p>
+      </div>
+
+      <div className="mb-6 rounded-lg border border-cyan-500/20 bg-cyan-500/10 p-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <h2 className="text-sm font-semibold text-foreground">Denshokan Mission Token</h2>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Select a playable token for this match. Board commit and combat actions route through
+              the official Denshokan flow.
+            </p>
+          </div>
+
+          <div className="flex gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => void refreshMissionTokens(selectedTokenId)}
+              disabled={isLoadingTokens || isMintingToken}
+            >
+              {isLoadingTokens ? "Refreshing..." : "Refresh"}
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              onClick={() => void handleMintToken()}
+              disabled={!address || isMintingToken || isLoadingTokens}
+            >
+              {isMintingToken ? "Minting..." : "Mint Token"}
+            </Button>
+          </div>
+        </div>
+
+        {!address ? (
+          <p className="mt-3 text-xs text-amber-200">
+            Connect your wallet to load or mint Denshokan tokens.
+          </p>
+        ) : missionTokens.length === 0 ? (
+          <p className="mt-3 text-xs text-muted-foreground">
+            No Dark Waters Denshokan tokens found for this wallet yet.
+          </p>
+        ) : (
+          <div className="mt-3 grid gap-2 sm:grid-cols-2">
+            {missionTokens.map((token) => {
+              const isSelected = token.tokenId === selectedTokenId
+              return (
+                <button
+                  key={token.tokenId}
+                  type="button"
+                  onClick={() => handleSelectToken(token.tokenId)}
+                  className={`rounded-lg border px-3 py-2 text-left transition-colors ${
+                    isSelected
+                      ? "border-cyan-400/50 bg-cyan-500/10"
+                      : "border-border/70 bg-background/40 hover:border-cyan-400/30"
+                  }`}
+                >
+                  <p className="font-mono text-xs text-foreground">{formatTokenId(token.tokenId)}</p>
+                  <p className={`mt-1 text-[11px] ${token.playable ? "text-emerald-300" : "text-amber-200"}`}>
+                    {token.playable ? "Playable" : "Not playable"}
+                  </p>
+                </button>
+              )
+            })}
+          </div>
+        )}
+
+        <p className="mt-3 text-xs text-muted-foreground">
+          {selectedTokenId
+            ? `Selected token: ${formatTokenId(selectedTokenId)}${isLinkingToken ? " • linking…" : ""}`
+            : "Select or mint a token before committing your fleet."}
         </p>
       </div>
 

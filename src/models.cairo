@@ -88,3 +88,24 @@ pub struct PendingAttack {
     pub y: u8,
     pub is_pending: bool,
 }
+
+#[derive(Copy, Drop, Serde, Debug)]
+#[dojo::model]
+pub struct EgsSessionLink {
+    #[key]
+    pub token_id: felt252,
+    pub game_id: u32,
+    pub player: ContractAddress,
+    pub linked_at: u64,
+    pub is_linked: bool,
+}
+
+#[derive(Copy, Drop, Serde, Debug)]
+#[dojo::model]
+pub struct EgsConfig {
+    #[key]
+    pub id: u8,
+    pub denshokan_token: ContractAddress,
+    pub is_enabled: bool,
+    pub is_initialized: bool,
+}

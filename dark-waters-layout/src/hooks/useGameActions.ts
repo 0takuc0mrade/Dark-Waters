@@ -1,7 +1,7 @@
 
 import { useCallback, useState } from "react"
 import { useAccount } from "@starknet-react/core"
-import { CallData } from "starknet"
+import { CairoOption, CairoOptionVariant, CallData } from "starknet"
 
 import { SEPOLIA_CONFIG } from "@/src/config/sepolia-config"
 import { logEvent } from "@/src/utils/logger"
@@ -139,6 +139,77 @@ export const useGameActions = () => {
     [execute]
   )
 
+  const linkSession = useCallback(
+    async (tokenId: string, gameId: number) => execute("link_session", [tokenId, gameId]),
+    [execute]
+  )
+
+  const commitBoardEgs = useCallback(
+    async (tokenId: string, root: string) => execute("commit_board_egs", [tokenId, root]),
+    [execute]
+  )
+
+  const commitAttackEgs = useCallback(
+    async (tokenId: string, attackHash: string) =>
+      execute("commit_attack_egs", [tokenId, attackHash]),
+    [execute]
+  )
+
+  const revealAttackEgs = useCallback(
+    async (tokenId: string, x: number, y: number, revealNonce: string) =>
+      execute("reveal_attack_egs", [tokenId, x, y, revealNonce]),
+    [execute]
+  )
+
+  const revealEgs = useCallback(
+    async (
+      tokenId: string,
+      x: number,
+      y: number,
+      cellNonce: string,
+      isShip: boolean,
+      proof: string[]
+    ) => execute("reveal_egs", [tokenId, x, y, cellNonce, isShip ? 1 : 0, proof]),
+    [execute]
+  )
+
+  const claimTimeoutWinEgs = useCallback(
+    async (tokenId: string) => execute("claim_timeout_win_egs", [tokenId]),
+    [execute]
+  )
+
+  const configureDenshokan = useCallback(
+    async (denshokanToken: string, isEnabled: boolean) =>
+      execute("configure_denshokan", [denshokanToken, isEnabled ? 1 : 0]),
+    [execute]
+  )
+
+  const initializeDenshokan = useCallback(
+    async () => execute("initialize_denshokan", []),
+    [execute]
+  )
+
+  const mintGameToken = useCallback(
+    async (to: string, salt: number) =>
+      execute("mint_game", [
+        new CairoOption(CairoOptionVariant.None),
+        new CairoOption(CairoOptionVariant.None),
+        new CairoOption(CairoOptionVariant.None),
+        new CairoOption(CairoOptionVariant.None),
+        new CairoOption(CairoOptionVariant.None),
+        new CairoOption(CairoOptionVariant.None),
+        new CairoOption(CairoOptionVariant.None),
+        new CairoOption(CairoOptionVariant.None),
+        new CairoOption(CairoOptionVariant.None),
+        to,
+        false,
+        false,
+        salt,
+        0,
+      ]),
+    [execute]
+  )
+
   return {
     spawnGame,
     spawnOpenGame,
@@ -152,6 +223,15 @@ export const useGameActions = () => {
     revealAttack,
     reveal,
     claimTimeoutWin,
+    linkSession,
+    commitBoardEgs,
+    commitAttackEgs,
+    revealAttackEgs,
+    revealEgs,
+    claimTimeoutWinEgs,
+    configureDenshokan,
+    initializeDenshokan,
+    mintGameToken,
     isLoading,
     error,
   }

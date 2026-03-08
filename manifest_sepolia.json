@@ -1,8 +1,8 @@
 {
   "world": {
     "class_hash": "0x381899226c066a0262f45d6ab815f89818e0874ec3e66cdf72b5e92d8db4680",
-    "address": "0x79e3198f644ce7761f1add8cdde043be8a8726d02ef9904d6015205da8eb1a1",
-    "seed": "dark_waters_v2",
+    "address": "0x35a61193deacca08e9438fc102a8fd6c9a8f6d1de392fd61277022793b9a3f",
+    "seed": "dark_waters_denshokan_20260308",
     "name": "dark_waters",
     "entrypoints": [
       "uuid",
@@ -33,12 +33,13 @@
   },
   "contracts": [
     {
-      "address": "0x18f4e1f102a3a2205ae200509ac059c432b545819324faf50a7412e1f652cce",
-      "class_hash": "0x5274bfa5797074e82c86a518cbec4c5209590d8067ea2a54ab4316ae6152d4d",
+      "address": "0xef4aa6462fc34fcba0a18b49973bc83004757cc59c9940412efddae68b9637",
+      "class_hash": "0x4e183cd6d270461d149791c7fe5bef64d5af50bebf5a9993c745b63dda7a56b",
       "init_calldata": [],
       "tag": "dark_waters-Actions",
       "selector": "0x7f689e2d818b18c76ed7a72d8b4bf448736c3dcbff39d1a36ed05da4fc67e00",
       "systems": [
+        "dojo_init",
         "spawn_game",
         "spawn_open_game",
         "spawn_game_with_stake",
@@ -51,6 +52,14 @@
         "reveal_attack",
         "reveal",
         "claim_timeout_win",
+        "link_session",
+        "commit_board_egs",
+        "commit_attack_egs",
+        "reveal_attack_egs",
+        "reveal_egs",
+        "claim_timeout_win_egs",
+        "configure_denshokan",
+        "initialize_denshokan",
         "upgrade"
       ]
     }
@@ -157,6 +166,65 @@
       "class_hash": "0x641699ba72a9153de37097becb4aea18adca0fba3dab5275e2651f81c955a31",
       "tag": "dark_waters-BoardCommitment",
       "selector": "0x2a78f9f78a8e251edd1fe6c08fac6a6aa4888a0948e95e11939b60d552e79a1"
+    },
+    {
+      "members": [
+        {
+          "name": "id",
+          "type": "core::integer::u8",
+          "key": true
+        },
+        {
+          "name": "denshokan_token",
+          "type": "core::starknet::contract_address::ContractAddress",
+          "key": false
+        },
+        {
+          "name": "is_enabled",
+          "type": "core::bool",
+          "key": false
+        },
+        {
+          "name": "is_initialized",
+          "type": "core::bool",
+          "key": false
+        }
+      ],
+      "class_hash": "0x6b360a464b1254a09f6b674b4839f6491e26500087b8022673c4df4c2fec2e2",
+      "tag": "dark_waters-EgsConfig",
+      "selector": "0x27bd8c3a0aef4a343b95b451ce38bc97cd513de7e37c1997f3abcb0090ec98b"
+    },
+    {
+      "members": [
+        {
+          "name": "token_id",
+          "type": "core::felt252",
+          "key": true
+        },
+        {
+          "name": "game_id",
+          "type": "core::integer::u32",
+          "key": false
+        },
+        {
+          "name": "player",
+          "type": "core::starknet::contract_address::ContractAddress",
+          "key": false
+        },
+        {
+          "name": "linked_at",
+          "type": "core::integer::u64",
+          "key": false
+        },
+        {
+          "name": "is_linked",
+          "type": "core::bool",
+          "key": false
+        }
+      ],
+      "class_hash": "0x6ed7df440f2dd679a41c91eaad1e9922206bf57e6f887a511496e833c826e47",
+      "tag": "dark_waters-EgsSessionLink",
+      "selector": "0x47389938aa8fd4288a7dd1503d7ed54c8fedfef2e8b7449cf05db00d25880b2"
     },
     {
       "members": [
@@ -582,6 +650,16 @@
     },
     {
       "type": "struct",
+      "name": "core::array::Span::<dark_waters::denshokan::GameContext>",
+      "members": [
+        {
+          "name": "snapshot",
+          "type": "@core::array::Array::<dark_waters::denshokan::GameContext>"
+        }
+      ]
+    },
+    {
+      "type": "struct",
       "name": "core::array::Span::<dojo::meta::introspect::Member>",
       "members": [
         {
@@ -664,6 +742,34 @@
     },
     {
       "type": "enum",
+      "name": "core::option::Option::<core::byte_array::ByteArray>",
+      "variants": [
+        {
+          "name": "Some",
+          "type": "core::byte_array::ByteArray"
+        },
+        {
+          "name": "None",
+          "type": "()"
+        }
+      ]
+    },
+    {
+      "type": "enum",
+      "name": "core::option::Option::<core::felt252>",
+      "variants": [
+        {
+          "name": "Some",
+          "type": "core::felt252"
+        },
+        {
+          "name": "None",
+          "type": "()"
+        }
+      ]
+    },
+    {
+      "type": "enum",
       "name": "core::option::Option::<core::integer::u32>",
       "variants": [
         {
@@ -673,6 +779,361 @@
         {
           "name": "None",
           "type": "()"
+        }
+      ]
+    },
+    {
+      "type": "enum",
+      "name": "core::option::Option::<core::integer::u64>",
+      "variants": [
+        {
+          "name": "Some",
+          "type": "core::integer::u64"
+        },
+        {
+          "name": "None",
+          "type": "()"
+        }
+      ]
+    },
+    {
+      "type": "enum",
+      "name": "core::option::Option::<core::starknet::contract_address::ContractAddress>",
+      "variants": [
+        {
+          "name": "Some",
+          "type": "core::starknet::contract_address::ContractAddress"
+        },
+        {
+          "name": "None",
+          "type": "()"
+        }
+      ]
+    },
+    {
+      "type": "enum",
+      "name": "core::option::Option::<dark_waters::denshokan::GameContextDetails>",
+      "variants": [
+        {
+          "name": "Some",
+          "type": "dark_waters::denshokan::GameContextDetails"
+        },
+        {
+          "name": "None",
+          "type": "()"
+        }
+      ]
+    },
+    {
+      "type": "struct",
+      "name": "dark_waters::denshokan::GameContext",
+      "members": [
+        {
+          "name": "name",
+          "type": "core::felt252"
+        },
+        {
+          "name": "value",
+          "type": "core::felt252"
+        }
+      ]
+    },
+    {
+      "type": "struct",
+      "name": "dark_waters::denshokan::GameContextDetails",
+      "members": [
+        {
+          "name": "name",
+          "type": "core::byte_array::ByteArray"
+        },
+        {
+          "name": "description",
+          "type": "core::byte_array::ByteArray"
+        },
+        {
+          "name": "id",
+          "type": "core::option::Option::<core::integer::u32>"
+        },
+        {
+          "name": "context",
+          "type": "core::array::Span::<dark_waters::denshokan::GameContext>"
+        }
+      ]
+    },
+    {
+      "type": "interface",
+      "name": "dark_waters::denshokan::IMinigame",
+      "items": [
+        {
+          "type": "function",
+          "name": "token_address",
+          "inputs": [],
+          "outputs": [
+            {
+              "type": "core::starknet::contract_address::ContractAddress"
+            }
+          ],
+          "state_mutability": "view"
+        },
+        {
+          "type": "function",
+          "name": "settings_address",
+          "inputs": [],
+          "outputs": [
+            {
+              "type": "core::starknet::contract_address::ContractAddress"
+            }
+          ],
+          "state_mutability": "view"
+        },
+        {
+          "type": "function",
+          "name": "objectives_address",
+          "inputs": [],
+          "outputs": [
+            {
+              "type": "core::starknet::contract_address::ContractAddress"
+            }
+          ],
+          "state_mutability": "view"
+        },
+        {
+          "type": "function",
+          "name": "mint_game",
+          "inputs": [
+            {
+              "name": "player_name",
+              "type": "core::option::Option::<core::felt252>"
+            },
+            {
+              "name": "settings_id",
+              "type": "core::option::Option::<core::integer::u32>"
+            },
+            {
+              "name": "start",
+              "type": "core::option::Option::<core::integer::u64>"
+            },
+            {
+              "name": "end",
+              "type": "core::option::Option::<core::integer::u64>"
+            },
+            {
+              "name": "objective_id",
+              "type": "core::option::Option::<core::integer::u32>"
+            },
+            {
+              "name": "context",
+              "type": "core::option::Option::<dark_waters::denshokan::GameContextDetails>"
+            },
+            {
+              "name": "client_url",
+              "type": "core::option::Option::<core::byte_array::ByteArray>"
+            },
+            {
+              "name": "renderer_address",
+              "type": "core::option::Option::<core::starknet::contract_address::ContractAddress>"
+            },
+            {
+              "name": "skills_address",
+              "type": "core::option::Option::<core::starknet::contract_address::ContractAddress>"
+            },
+            {
+              "name": "to",
+              "type": "core::starknet::contract_address::ContractAddress"
+            },
+            {
+              "name": "soulbound",
+              "type": "core::bool"
+            },
+            {
+              "name": "paymaster",
+              "type": "core::bool"
+            },
+            {
+              "name": "salt",
+              "type": "core::integer::u16"
+            },
+            {
+              "name": "metadata",
+              "type": "core::integer::u16"
+            }
+          ],
+          "outputs": [
+            {
+              "type": "core::felt252"
+            }
+          ],
+          "state_mutability": "view"
+        },
+        {
+          "type": "function",
+          "name": "mint_game_batch",
+          "inputs": [
+            {
+              "name": "mints",
+              "type": "core::array::Array::<dark_waters::denshokan::MintGameParams>"
+            }
+          ],
+          "outputs": [
+            {
+              "type": "core::array::Array::<core::felt252>"
+            }
+          ],
+          "state_mutability": "view"
+        }
+      ]
+    },
+    {
+      "type": "interface",
+      "name": "dark_waters::denshokan::IMinigameTokenData",
+      "items": [
+        {
+          "type": "function",
+          "name": "score",
+          "inputs": [
+            {
+              "name": "token_id",
+              "type": "core::felt252"
+            }
+          ],
+          "outputs": [
+            {
+              "type": "core::integer::u64"
+            }
+          ],
+          "state_mutability": "view"
+        },
+        {
+          "type": "function",
+          "name": "game_over",
+          "inputs": [
+            {
+              "name": "token_id",
+              "type": "core::felt252"
+            }
+          ],
+          "outputs": [
+            {
+              "type": "core::bool"
+            }
+          ],
+          "state_mutability": "view"
+        },
+        {
+          "type": "function",
+          "name": "score_batch",
+          "inputs": [
+            {
+              "name": "token_ids",
+              "type": "core::array::Span::<core::felt252>"
+            }
+          ],
+          "outputs": [
+            {
+              "type": "core::array::Array::<core::integer::u64>"
+            }
+          ],
+          "state_mutability": "view"
+        },
+        {
+          "type": "function",
+          "name": "game_over_batch",
+          "inputs": [
+            {
+              "name": "token_ids",
+              "type": "core::array::Span::<core::felt252>"
+            }
+          ],
+          "outputs": [
+            {
+              "type": "core::array::Array::<core::bool>"
+            }
+          ],
+          "state_mutability": "view"
+        }
+      ]
+    },
+    {
+      "type": "interface",
+      "name": "dark_waters::denshokan::ISRC5",
+      "items": [
+        {
+          "type": "function",
+          "name": "supports_interface",
+          "inputs": [
+            {
+              "name": "interface_id",
+              "type": "core::felt252"
+            }
+          ],
+          "outputs": [
+            {
+              "type": "core::bool"
+            }
+          ],
+          "state_mutability": "view"
+        }
+      ]
+    },
+    {
+      "type": "struct",
+      "name": "dark_waters::denshokan::MintGameParams",
+      "members": [
+        {
+          "name": "player_name",
+          "type": "core::option::Option::<core::felt252>"
+        },
+        {
+          "name": "settings_id",
+          "type": "core::option::Option::<core::integer::u32>"
+        },
+        {
+          "name": "start",
+          "type": "core::option::Option::<core::integer::u64>"
+        },
+        {
+          "name": "end",
+          "type": "core::option::Option::<core::integer::u64>"
+        },
+        {
+          "name": "objective_id",
+          "type": "core::option::Option::<core::integer::u32>"
+        },
+        {
+          "name": "context",
+          "type": "core::option::Option::<dark_waters::denshokan::GameContextDetails>"
+        },
+        {
+          "name": "client_url",
+          "type": "core::option::Option::<core::byte_array::ByteArray>"
+        },
+        {
+          "name": "renderer_address",
+          "type": "core::option::Option::<core::starknet::contract_address::ContractAddress>"
+        },
+        {
+          "name": "skills_address",
+          "type": "core::option::Option::<core::starknet::contract_address::ContractAddress>"
+        },
+        {
+          "name": "to",
+          "type": "core::starknet::contract_address::ContractAddress"
+        },
+        {
+          "name": "soulbound",
+          "type": "core::bool"
+        },
+        {
+          "name": "paymaster",
+          "type": "core::bool"
+        },
+        {
+          "name": "salt",
+          "type": "core::integer::u16"
+        },
+        {
+          "name": "metadata",
+          "type": "core::integer::u16"
         }
       ]
     },
@@ -808,6 +1269,94 @@
         },
         {
           "name": "is_committed",
+          "type": "core::bool"
+        }
+      ]
+    },
+    {
+      "type": "struct",
+      "name": "dark_waters::models::EgsConfig",
+      "members": [
+        {
+          "name": "id",
+          "type": "core::integer::u8"
+        },
+        {
+          "name": "denshokan_token",
+          "type": "core::starknet::contract_address::ContractAddress"
+        },
+        {
+          "name": "is_enabled",
+          "type": "core::bool"
+        },
+        {
+          "name": "is_initialized",
+          "type": "core::bool"
+        }
+      ]
+    },
+    {
+      "type": "struct",
+      "name": "dark_waters::models::EgsConfigValue",
+      "members": [
+        {
+          "name": "denshokan_token",
+          "type": "core::starknet::contract_address::ContractAddress"
+        },
+        {
+          "name": "is_enabled",
+          "type": "core::bool"
+        },
+        {
+          "name": "is_initialized",
+          "type": "core::bool"
+        }
+      ]
+    },
+    {
+      "type": "struct",
+      "name": "dark_waters::models::EgsSessionLink",
+      "members": [
+        {
+          "name": "token_id",
+          "type": "core::felt252"
+        },
+        {
+          "name": "game_id",
+          "type": "core::integer::u32"
+        },
+        {
+          "name": "player",
+          "type": "core::starknet::contract_address::ContractAddress"
+        },
+        {
+          "name": "linked_at",
+          "type": "core::integer::u64"
+        },
+        {
+          "name": "is_linked",
+          "type": "core::bool"
+        }
+      ]
+    },
+    {
+      "type": "struct",
+      "name": "dark_waters::models::EgsSessionLinkValue",
+      "members": [
+        {
+          "name": "game_id",
+          "type": "core::integer::u32"
+        },
+        {
+          "name": "player",
+          "type": "core::starknet::contract_address::ContractAddress"
+        },
+        {
+          "name": "linked_at",
+          "type": "core::integer::u64"
+        },
+        {
+          "name": "is_linked",
           "type": "core::bool"
         }
       ]
@@ -1025,6 +1574,18 @@
     {
       "type": "event",
       "name": "dark_waters::models::m_BoardCommitment::Event",
+      "kind": "enum",
+      "variants": []
+    },
+    {
+      "type": "event",
+      "name": "dark_waters::models::m_EgsConfig::Event",
+      "kind": "enum",
+      "variants": []
+    },
+    {
+      "type": "event",
+      "name": "dark_waters::models::m_EgsSessionLink::Event",
       "kind": "enum",
       "variants": []
     },
@@ -1680,6 +2241,149 @@
             }
           ],
           "outputs": [],
+          "state_mutability": "external"
+        },
+        {
+          "type": "function",
+          "name": "link_session",
+          "inputs": [
+            {
+              "name": "token_id",
+              "type": "core::felt252"
+            },
+            {
+              "name": "game_id",
+              "type": "core::integer::u32"
+            }
+          ],
+          "outputs": [],
+          "state_mutability": "external"
+        },
+        {
+          "type": "function",
+          "name": "commit_board_egs",
+          "inputs": [
+            {
+              "name": "token_id",
+              "type": "core::felt252"
+            },
+            {
+              "name": "merkle_root",
+              "type": "core::felt252"
+            }
+          ],
+          "outputs": [],
+          "state_mutability": "external"
+        },
+        {
+          "type": "function",
+          "name": "commit_attack_egs",
+          "inputs": [
+            {
+              "name": "token_id",
+              "type": "core::felt252"
+            },
+            {
+              "name": "attack_hash",
+              "type": "core::felt252"
+            }
+          ],
+          "outputs": [],
+          "state_mutability": "external"
+        },
+        {
+          "type": "function",
+          "name": "reveal_attack_egs",
+          "inputs": [
+            {
+              "name": "token_id",
+              "type": "core::felt252"
+            },
+            {
+              "name": "x",
+              "type": "core::integer::u8"
+            },
+            {
+              "name": "y",
+              "type": "core::integer::u8"
+            },
+            {
+              "name": "reveal_nonce",
+              "type": "core::felt252"
+            }
+          ],
+          "outputs": [],
+          "state_mutability": "external"
+        },
+        {
+          "type": "function",
+          "name": "reveal_egs",
+          "inputs": [
+            {
+              "name": "token_id",
+              "type": "core::felt252"
+            },
+            {
+              "name": "x",
+              "type": "core::integer::u8"
+            },
+            {
+              "name": "y",
+              "type": "core::integer::u8"
+            },
+            {
+              "name": "cell_nonce",
+              "type": "core::felt252"
+            },
+            {
+              "name": "is_ship",
+              "type": "core::bool"
+            },
+            {
+              "name": "proof",
+              "type": "core::array::Span::<core::felt252>"
+            }
+          ],
+          "outputs": [],
+          "state_mutability": "external"
+        },
+        {
+          "type": "function",
+          "name": "claim_timeout_win_egs",
+          "inputs": [
+            {
+              "name": "token_id",
+              "type": "core::felt252"
+            }
+          ],
+          "outputs": [],
+          "state_mutability": "external"
+        },
+        {
+          "type": "function",
+          "name": "configure_denshokan",
+          "inputs": [
+            {
+              "name": "denshokan_token",
+              "type": "core::starknet::contract_address::ContractAddress"
+            },
+            {
+              "name": "is_enabled",
+              "type": "core::bool"
+            }
+          ],
+          "outputs": [],
+          "state_mutability": "external"
+        },
+        {
+          "type": "function",
+          "name": "initialize_denshokan",
+          "inputs": [],
+          "outputs": [
+            {
+              "type": "core::integer::u64"
+            }
+          ],
           "state_mutability": "external"
         },
         {
@@ -3372,7 +4076,7 @@
       "name": "dojo_init",
       "inputs": [],
       "outputs": [],
-      "state_mutability": "view"
+      "state_mutability": "external"
     },
     {
       "type": "function",

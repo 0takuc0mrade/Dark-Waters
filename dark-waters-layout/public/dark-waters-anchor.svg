@@ -1,0 +1,29 @@
+<svg width="400" height="400" viewBox="0 0 400 400" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="dw-bg" x1="48" y1="48" x2="352" y2="352" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#0B1D28"/>
+      <stop offset="1" stop-color="#08141C"/>
+    </linearGradient>
+    <linearGradient id="dw-stroke" x1="108" y1="92" x2="292" y2="308" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#B9F6FF"/>
+      <stop offset="1" stop-color="#62D6E8"/>
+    </linearGradient>
+  </defs>
+
+  <rect x="48" y="48" width="304" height="304" rx="44" fill="url(#dw-bg)"/>
+  <rect x="48.75" y="48.75" width="302.5" height="302.5" rx="43.25" stroke="#2BC7DE" stroke-opacity="0.4" stroke-width="1.5"/>
+
+  <g stroke="url(#dw-stroke)" stroke-width="18" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M200 92V266"/>
+    <path d="M170 124H230"/>
+    <path d="M110 214C110 269.228 150.772 314 200 314C249.228 314 290 269.228 290 214"/>
+    <path d="M110 214H166"/>
+    <path d="M234 214H290"/>
+    <path d="M200 314C179.297 314 162.5 330.797 162.5 351.5"/>
+    <path d="M200 314C220.703 314 237.5 330.797 237.5 351.5"/>
+    <path d="M200 92C220.987 92 238 74.9868 238 54"/>
+    <path d="M200 92C179.013 92 162 74.9868 162 54"/>
+  </g>
+
+  <circle cx="200" cy="92" r="15" fill="#0B1117" stroke="#B9F6FF" stroke-width="10"/>
+</svg>

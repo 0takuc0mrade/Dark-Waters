@@ -5,6 +5,7 @@ import { RpcProvider } from "starknet"
 import { useAccount } from "@starknet-react/core"
 
 import { useGameActions } from "@/src/hooks/useGameActions"
+import { readSelectedGameToken } from "@/src/lib/denshokan"
 import { BoardMerkle, type Ship } from "@/src/utils/merkle"
 import { useToast } from "@/hooks/use-toast"
 import { SEPOLIA_CONFIG } from "@/src/config/sepolia-config"
@@ -113,7 +114,7 @@ export function useAttackListener(
   const { pollInterval = 4000, enabled = true, gameId: optionGameId = null } = options
 
   const { account, address } = useAccount()
-  const { reveal } = useGameActions()
+  const { reveal, revealEgs } = useGameActions()
   const { toast } = useToast()
 
   const [incomingAttacks, setIncomingAttacks] = useState<AttackMadeEvent[]>([])
@@ -169,7 +170,12 @@ export function useAttackListener(
         const proofHex = merkle.getProof(event.x, event.y).map((p) => `0x${p.toString(16)}`)
         const cellNonce = merkle.getCellNonceHex(event.x, event.y)
 
-        await reveal(event.gameId, event.x, event.y, cellNonce, isShip, proofHex)
+        const tokenId = readSelectedGameToken(event.gameId, address)
+        if (tokenId) {
+          await revealEgs(tokenId, event.x, event.y, cellNonce, isShip, proofHex)
+        } else {
+          await reveal(event.gameId, event.x, event.y, cellNonce, isShip, proofHex)
+        }
         setLastError(null)
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err)
@@ -189,7 +195,7 @@ export function useAttackListener(
         setIsRevealing(false)
       }
     },
-    [address, reveal, toast, tryLoadSecrets]
+    [address, reveal, revealEgs, toast, tryLoadSecrets]
   )
 
   useEffect(() => {

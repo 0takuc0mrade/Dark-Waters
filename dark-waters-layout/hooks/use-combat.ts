@@ -5,6 +5,7 @@ import { useAccount } from "@starknet-react/core"
 import { useGameActions } from "@/src/hooks/useGameActions"
 import { useGameState } from "@/hooks/useGameState"
 import { useToast } from "@/hooks/use-toast"
+import { readSelectedGameToken } from "@/src/lib/denshokan"
 import type { CombatCell, BattleLogEntry, ShipHealth } from "@/components/combat/types"
 import { GRID_SIZE } from "@/components/combat/types"
 import {
@@ -137,7 +138,7 @@ const INITIAL_ENEMY_SHIPS: ShipHealth[] = [
 
 export function useCombat() {
   const { address } = useAccount()
-  const { commitAttack, revealAttack } = useGameActions()
+  const { commitAttack, commitAttackEgs, revealAttack, revealAttackEgs } = useGameActions()
   const { toast } = useToast()
 
   const [isPlayerTurn, setIsPlayerTurn] = useState(true)
@@ -163,6 +164,7 @@ export function useCombat() {
   const hasHydratedTurnRef = useRef(false)
 
   const [gameId, setGameId] = useState<number | null>(null)
+  const [missionTokenId, setMissionTokenId] = useState<string | null>(null)
   useEffect(() => {
     const stored = localStorage.getItem(LS_GAME_ID)
     if (stored) setGameId(Number(stored))
@@ -171,6 +173,7 @@ export function useCombat() {
   const exitGame = useCallback(() => {
     localStorage.removeItem(LS_GAME_ID)
     setGameId(null)
+    setMissionTokenId(null)
   }, [])
 
   const { gameState } = useGameState(gameId)
@@ -210,6 +213,8 @@ export function useCombat() {
     logIdRef.current = 0
 
     if (!gameId || !address) return
+
+    setMissionTokenId(readSelectedGameToken(gameId, address))
 
     let loadedPersistedState = false
     const persistedRaw = localStorage.getItem(getCombatStateKey(gameId, address))
@@ -368,7 +373,11 @@ export function useCombat() {
       })
 
       try {
-        await commitAttack(gameId, attackHash)
+        if (missionTokenId) {
+          await commitAttackEgs(missionTokenId, attackHash)
+        } else {
+          await commitAttack(gameId, attackHash)
+        }
         failedStage = "reveal"
         setProtocolRail((prev) => ({
           ...prev,
@@ -376,7 +385,11 @@ export function useCombat() {
           revealAttack: "pending",
           updatedAt: Date.now(),
         }))
-        await revealAttack(gameId, col, row, revealNonce)
+        if (missionTokenId) {
+          await revealAttackEgs(missionTokenId, col, row, revealNonce)
+        } else {
+          await revealAttack(gameId, col, row, revealNonce)
+        }
         setProtocolRail((prev) => ({
           ...prev,
           revealAttack: "confirmed",
@@ -429,9 +442,12 @@ export function useCombat() {
       targetGrid,
       gameId,
       commitAttack,
+      commitAttackEgs,
       revealAttack,
+      revealAttackEgs,
       toast,
       gameState,
+      missionTokenId,
     ]
   )
 

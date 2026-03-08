@@ -2,7 +2,7 @@
 # ─────────────────────────────────────────────────────────────
 # deploy_sepolia.sh — Deploy Dark Waters to Starknet Sepolia
 # ─────────────────────────────────────────────────────────────
-set -e
+set -euo pipefail
 
 # ── RPC endpoint ──────────────────────────────────────────────
 STARKNET_RPC_URL="https://api.cartridge.gg/x/starknet/sepolia"
@@ -29,6 +29,11 @@ if [ -z "$DOJO_PRIVATE_KEY" ]; then
   exit 1
 fi
 export DOJO_PRIVATE_KEY
+
+echo ""
+DENSHOKAN_DEFAULT_TOKEN="0x0142712722e62a38f9c40fcc904610e1a14c70125876ecaaf25d803556734467"
+read -rp "Enter the Denshokan token contract address [${DENSHOKAN_DEFAULT_TOKEN}]: " DENSHOKAN_TOKEN
+DENSHOKAN_TOKEN="${DENSHOKAN_TOKEN:-$DENSHOKAN_DEFAULT_TOKEN}"
 
 # ── Cleanup trap ──────────────────────────────────────────────
 cleanup_env() {
@@ -70,10 +75,22 @@ echo ""
 echo "Building the project..."
 sozo -P sepolia build
 
+echo ""
+echo "Patching Actions dojo_init calldata..."
+bash ./scripts/patch_egs_init_calldata.sh sepolia
+
 # ── Migrate ───────────────────────────────────────────────────
 echo ""
 echo "Deploying to Sepolia..."
 MIGRATE_OUTPUT=$(sozo -P sepolia migrate 2>&1 | tee /dev/stderr)
+
+echo ""
+echo "Configuring Denshokan token..."
+sozo -P sepolia execute dark_waters-Actions configure_denshokan "$DENSHOKAN_TOKEN" 1 --wait
+
+echo ""
+echo "Initializing Denshokan registration..."
+sozo -P sepolia execute dark_waters-Actions initialize_denshokan --wait
 
 # ── Parse World Address ───────────────────────────────────────
 WORLD_ADDRESS=$(echo "$MIGRATE_OUTPUT" | grep -oP 'world at address \K0x[0-9a-fA-F]+' || true)
