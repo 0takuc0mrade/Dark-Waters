@@ -23,6 +23,11 @@ const _ibmMono = IBM_Plex_Mono({
 export const metadata: Metadata = {
   title: "Dark Waters",
   description: "Naval command protocol on Starknet. Commit, reveal, verify, settle.",
+  icons: {
+    icon: "/dark-waters-anchor.svg",
+    shortcut: "/dark-waters-anchor.svg",
+    apple: "/dark-waters-anchor.svg",
+  },
 }
 
 export const viewport: Viewport = {
