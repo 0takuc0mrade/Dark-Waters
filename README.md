@@ -14,6 +14,33 @@ Live app: https://dark-waters-m2fn.vercel.app/
 - Replay-safe sync: checkpointed, deduped event indexing.
 - Modern game UX: proof rail, profile progression, medals, post-match debrief, audio pack.
 
+## Current Status (March 8, 2026)
+
+Dark Waters is live on Sepolia through the official Denshokan path and is already indexed on Fun
+Factory.
+
+- Sepolia world: `0x0035a61193deacca08e9438fc102a8fd6c9a8f6d1de392fd61277022793b9a3f`
+- `dark_waters-Actions`: `0x0ef4aa6462fc34fcba0a18b49973bc83004757cc59c9940412efddae68b9637`
+- Denshokan game id: `19`
+- Torii endpoint: `https://api.cartridge.gg/x/dark-waters/torii`
+- Live app: `https://dark-waters-m2fn.vercel.app/`
+- Fun Factory listing: `https://funfactory.gg/games?network=sepolia`
+
+What has been validated onchain:
+
+- official Denshokan registration is complete
+- `configure_denshokan` and `initialize_denshokan` succeed
+- Denshokan token mint/select flow works from the frontend
+- `link_session` and `commit_board_egs` work on Sepolia
+- `score(token_id)` and `game_over(token_id)` return the correct unfinished-game values
+- Dark Waters appears in the Denshokan `/games` API and on Fun Factory
+
+Known follow-up:
+
+- the current Fun Factory entry is live, but replacing its card image requires a fresh contract
+  registration because the current Denshokan registry flow only exposes `register_game(...)`, not a
+  metadata update entrypoint
+
 ## Latest Update: Open Lobby Queue
 
 - Host can now spawn a game without pre-selecting an opponent.
@@ -246,6 +273,10 @@ Denshokan token:
 - token: `0x0142712722e62a38f9c40fcc904610e1a14c70125876ecaaf25d803556734467`
 - registry: `0x040f1ed9880611bb7273bf51fd67123ebbba04c282036e2f81314061f6f9b1a1`
 - renderer: `0x035d01a7689ade1f5b27e50b07c923812580bb91bd0931042a9a2f8ff07dc7ec`
+- live world: `0x0035a61193deacca08e9438fc102a8fd6c9a8f6d1de392fd61277022793b9a3f`
+- live `Actions`: `0x0ef4aa6462fc34fcba0a18b49973bc83004757cc59c9940412efddae68b9637`
+- Fun Factory / Denshokan game id: `19`
+- Torii: `https://api.cartridge.gg/x/dark-waters/torii`
 
 Fresh or rebuilt manifests should leave `dojo_init()` empty and configure Denshokan explicitly
 after migration:
@@ -272,6 +303,14 @@ After initialization:
 - link the token to a game via `link_session`
 - use `_egs` gameplay entrypoints for board commit and combat
 - verify the game appears in the Denshokan `/games` API and then on `https://funfactory.gg/?network=sepolia`
+
+Current outcome:
+
+- Dark Waters is already registered and indexed on the official Denshokan stack
+- the game is visible on Fun Factory with id `19`
+- the current frontend config should continue to point at the Sepolia world/actions addresses above
+- the prepared anchor image metadata will only show up on Fun Factory after a fresh contract
+  registration, not by re-running initialization on the same contract address
 
 ### 2.2) Legacy Helper Contracts
 
@@ -311,6 +350,8 @@ After on-chain migration, update:
   - `DEPLOYED_BLOCK`
 
 Then restart frontend.
+
+Current checked-in Sepolia config values are already set to the live Denshokan deployment above.
 
 ## Repo Layout
 

@@ -1,5 +1,6 @@
 target
 dojo_mainnet.toml
+dojo_sepolia.toml.bak
 .env.sepolia
 .env.mainnet
 sepolia_config.json

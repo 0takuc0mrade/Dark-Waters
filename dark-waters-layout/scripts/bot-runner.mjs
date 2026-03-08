@@ -19,7 +19,21 @@ const DEFAULT_ACTIONS_ADDRESS =
   "0x18f4e1f102a3a2205ae200509ac059c432b545819324faf50a7412e1f652cce"
 const DEFAULT_TORII_URL = "https://api.cartridge.gg/x/dark-waters/torii"
 const DEFAULT_CHAIN_ID = constants.StarknetChainId.SN_SEPOLIA
+const DEFAULT_DEPLOYED_BLOCK = 7366588
 const STATE_VERSION = 1
+const MAX_SEEN_EVENT_IDS = 4000
+const EVENT_EMITTED_SELECTOR =
+  "0x1c93f6e4703ae90f75338f29bffbe9c1662200cee981f49afeec26e892debcd"
+const GAME_SPAWNED_EVENT_HASH =
+  "0x7003ad3d04ce3b53a28689df967350b9610b921088b7e4c6fa97cb34e892798"
+const BOARD_COMMITTED_EVENT_HASH =
+  "0x575b6f66dbb5b17fb1631bcf236f4a0328f93190da5ce469732b822e40671e3"
+const ATTACK_MADE_EVENT_HASH =
+  "0x5548cce77b1d5547ae403fe1c999eb6b5b6deec203bb41d643f1ce0745141dd"
+const ATTACK_REVEALED_EVENT_HASH =
+  "0x2b1e1c82d7adc6a31dcfd63a739314b26b4319934d854c9906d1039b62d8d91"
+const GAME_ENDED_EVENT_HASH =
+  "0x259ed609484026ce0d7af132cae5944310770b975655365e632f144607da0ea"
 
 function parseBoolEnv(value, fallback = false) {
   if (value === undefined || value === null || value === "") return fallback
@@ -45,6 +59,11 @@ const CONFIG = {
     process.env.NEXT_PUBLIC_BOT_ADDRESS ||
     "",
   chainId: process.env.BOT_CHAIN_ID || DEFAULT_CHAIN_ID,
+  deployedBlock: Number(
+    process.env.BOT_DEPLOYED_BLOCK ||
+      process.env.NEXT_PUBLIC_SEPOLIA_DEPLOYED_BLOCK ||
+      DEFAULT_DEPLOYED_BLOCK
+  ),
   sessionBasePath:
     process.env.BOT_SESSION_BASE_PATH ||
     process.env.CARTRIDGE_STORAGE_PATH ||
@@ -71,6 +90,22 @@ const CONFIG = {
 /** @type {BotRuntimeState} */
 const runtimeState = loadRuntimeState(CONFIG.statePath)
 const boardPlanCache = new Map()
+const eventCache = {
+  bootstrapped: false,
+  cursorBlock: CONFIG.deployedBlock,
+  seenEventIds: new Set(),
+  seenEventIdOrder: [],
+  games: new Map(),
+  boardCommitments: new Map(),
+  pendingAttacks: new Map(),
+  attacks: new Map(),
+}
+const fallbackLogState = {
+  games: false,
+  boardCommitments: false,
+  pendingAttack: false,
+  attacks: false,
+}
 const healthState = {
   status: "starting",
   startedAt: new Date().toISOString(),
@@ -290,6 +325,252 @@ function generateShipSet(seedText) {
   return occupied
 }
 
+function computeEventId(event) {
+  const block = event.block_number ?? "n/a"
+  const tx = event.transaction_hash ?? "0x0"
+  const eventIndex = event.event_index ?? event.index ?? ""
+  const keys = Array.isArray(event.keys) ? event.keys.join(",") : ""
+  const data = Array.isArray(event.data) ? event.data.join(",") : ""
+  return `${block}:${tx}:${eventIndex}:${keys}:${data}`
+}
+
+function eventBlockNumber(event, fallback) {
+  const candidate = event?.block_number
+  if (typeof candidate === "number" && Number.isFinite(candidate)) return candidate
+  return fallback
+}
+
+function eventIndex(event) {
+  const candidate = event?.event_index ?? event?.index
+  if (typeof candidate === "number" && Number.isFinite(candidate)) return candidate
+  return 0
+}
+
+function rememberEventId(id) {
+  if (eventCache.seenEventIds.has(id)) return false
+  eventCache.seenEventIds.add(id)
+  eventCache.seenEventIdOrder.push(id)
+
+  while (eventCache.seenEventIdOrder.length > MAX_SEEN_EVENT_IDS) {
+    const expired = eventCache.seenEventIdOrder.shift()
+    if (expired) eventCache.seenEventIds.delete(expired)
+  }
+
+  return true
+}
+
+async function fetchEventsSince(provider, eventHash, fromBlock) {
+  const events = []
+  let continuationToken
+
+  do {
+    const page = await provider.getEvents({
+      address: CONFIG.worldAddress,
+      keys: [[EVENT_EMITTED_SELECTOR], [eventHash]],
+      from_block: { block_number: fromBlock },
+      to_block: "latest",
+      chunk_size: 500,
+      continuation_token: continuationToken,
+    })
+    events.push(...page.events)
+    continuationToken = page.continuation_token ?? undefined
+  } while (continuationToken)
+
+  return events
+}
+
+function commitmentKey(gameId, player) {
+  return `${gameId}:${toAddress(player)}`
+}
+
+function attackKey(gameId, attacker, x, y) {
+  return `${gameId}:${toAddress(attacker)}:${x}:${y}`
+}
+
+function rememberAttack(gameId, attacker, x, y, isRevealed, isHit) {
+  eventCache.attacks.set(attackKey(gameId, attacker, x, y), {
+    gameId,
+    attacker: toAddress(attacker),
+    x,
+    y,
+    isRevealed,
+    isHit,
+  })
+}
+
+function applySpawnEvent(event) {
+  if (!Array.isArray(event.data) || event.data.length < 8) return
+  const gameId = Number(event.data[1])
+  if (!Number.isFinite(gameId) || gameId <= 0) return
+
+  eventCache.games.set(gameId, {
+    gameId,
+    player1: toAddress(event.data[3]),
+    player2: toAddress(event.data[4]),
+    turn: toAddress(event.data[5]),
+    state: toNumber(event.data[6]),
+    winner: toAddress(event.data[7]),
+  })
+}
+
+function applyBoardCommittedEvent(event) {
+  if (!Array.isArray(event.data) || event.data.length < 4) return
+  const gameId = Number(event.data[1])
+  if (!Number.isFinite(gameId) || gameId <= 0) return
+
+  const player = toAddress(event.data[3])
+  eventCache.boardCommitments.set(commitmentKey(gameId, player), {
+    gameId,
+    player,
+    isCommitted: true,
+  })
+
+  const game = eventCache.games.get(gameId)
+  if (!game) return
+
+  const p1Committed = eventCache.boardCommitments.get(commitmentKey(gameId, game.player1))?.isCommitted
+  const p2Committed = eventCache.boardCommitments.get(commitmentKey(gameId, game.player2))?.isCommitted
+  if (p1Committed && p2Committed) {
+    game.state = 1
+  }
+}
+
+function applyAttackMadeEvent(event) {
+  if (!Array.isArray(event.data) || event.data.length < 6) return
+  const gameId = Number(event.data[1])
+  if (!Number.isFinite(gameId) || gameId <= 0) return
+
+  const attacker = toAddress(event.data[3])
+  const x = Number(event.data[4])
+  const y = Number(event.data[5])
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return
+
+  rememberAttack(gameId, attacker, x, y, false, false)
+  eventCache.pendingAttacks.set(gameId, {
+    gameId,
+    attacker,
+    x,
+    y,
+    isPending: true,
+  })
+}
+
+function applyAttackRevealedEvent(event) {
+  if (!Array.isArray(event.data) || event.data.length < 7) return
+  const gameId = Number(event.data[1])
+  if (!Number.isFinite(gameId) || gameId <= 0) return
+
+  const attacker = toAddress(event.data[3])
+  const x = Number(event.data[4])
+  const y = Number(event.data[5])
+  const isHit = Number(event.data[6]) === 1
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return
+
+  rememberAttack(gameId, attacker, x, y, true, isHit)
+  eventCache.pendingAttacks.delete(gameId)
+
+  const game = eventCache.games.get(gameId)
+  if (!game) return
+
+  if (sameAddress(attacker, game.player1)) {
+    game.turn = game.player2
+  } else if (sameAddress(attacker, game.player2)) {
+    game.turn = game.player1
+  }
+}
+
+function applyGameEndedEvent(event) {
+  if (!Array.isArray(event.data) || event.data.length < 4) return
+  const gameId = Number(event.data[1])
+  if (!Number.isFinite(gameId) || gameId <= 0) return
+
+  const winner = toAddress(event.data[3])
+  const game = eventCache.games.get(gameId)
+  if (!game) return
+
+  game.state = 2
+  game.winner = winner
+  eventCache.pendingAttacks.delete(gameId)
+}
+
+function applyWorldEvent(event) {
+  const eventHash = String(event?.keys?.[1] ?? "").toLowerCase()
+  if (!eventHash) return
+
+  if (eventHash === GAME_SPAWNED_EVENT_HASH.toLowerCase()) {
+    applySpawnEvent(event)
+    return
+  }
+  if (eventHash === BOARD_COMMITTED_EVENT_HASH.toLowerCase()) {
+    applyBoardCommittedEvent(event)
+    return
+  }
+  if (eventHash === ATTACK_MADE_EVENT_HASH.toLowerCase()) {
+    applyAttackMadeEvent(event)
+    return
+  }
+  if (eventHash === ATTACK_REVEALED_EVENT_HASH.toLowerCase()) {
+    applyAttackRevealedEvent(event)
+    return
+  }
+  if (eventHash === GAME_ENDED_EVENT_HASH.toLowerCase()) {
+    applyGameEndedEvent(event)
+  }
+}
+
+async function syncEventCache(rpcProvider) {
+  const fromBlock = eventCache.bootstrapped ? eventCache.cursorBlock : CONFIG.deployedBlock
+  const batches = await Promise.all([
+    fetchEventsSince(rpcProvider, GAME_SPAWNED_EVENT_HASH, fromBlock),
+    fetchEventsSince(rpcProvider, BOARD_COMMITTED_EVENT_HASH, fromBlock),
+    fetchEventsSince(rpcProvider, ATTACK_MADE_EVENT_HASH, fromBlock),
+    fetchEventsSince(rpcProvider, ATTACK_REVEALED_EVENT_HASH, fromBlock),
+    fetchEventsSince(rpcProvider, GAME_ENDED_EVENT_HASH, fromBlock),
+  ])
+
+  const merged = batches
+    .flat()
+    .sort((left, right) => {
+      const leftBlock = eventBlockNumber(left, fromBlock)
+      const rightBlock = eventBlockNumber(right, fromBlock)
+      if (leftBlock !== rightBlock) return leftBlock - rightBlock
+      return eventIndex(left) - eventIndex(right)
+    })
+
+  let maxBlock = fromBlock
+  for (const event of merged) {
+    maxBlock = Math.max(maxBlock, eventBlockNumber(event, fromBlock))
+    const id = computeEventId(event)
+    if (!rememberEventId(id)) continue
+    applyWorldEvent(event)
+  }
+
+  eventCache.bootstrapped = true
+  eventCache.cursorBlock = maxBlock
+}
+
+async function queryGamesFromEvents(rpcProvider) {
+  await syncEventCache(rpcProvider)
+  return Array.from(eventCache.games.values()).sort((a, b) => a.gameId - b.gameId)
+}
+
+async function queryBoardCommitmentsFromEvents(rpcProvider, gameId) {
+  await syncEventCache(rpcProvider)
+  return Array.from(eventCache.boardCommitments.values()).filter(
+    (commitment) => commitment.gameId === gameId
+  )
+}
+
+async function queryPendingAttackFromEvents(rpcProvider, gameId) {
+  await syncEventCache(rpcProvider)
+  return eventCache.pendingAttacks.get(gameId) ?? null
+}
+
+async function queryAttacksFromEvents(rpcProvider, gameId) {
+  await syncEventCache(rpcProvider)
+  return Array.from(eventCache.attacks.values()).filter((attack) => attack.gameId === gameId)
+}
+
 function getBoardPlan(gameId) {
   if (boardPlanCache.has(gameId)) return boardPlanCache.get(gameId)
 
@@ -339,7 +620,6 @@ function log(level, message, meta = {}) {
 
 function validateConfig() {
   const missing = []
-  if (!CONFIG.toriiUrl) missing.push("BOT_TORII_URL or NEXT_PUBLIC_SEPOLIA_TORII_URL")
   if (missing.length > 0) {
     throw new Error(`Missing required env vars: ${missing.join(", ")}`)
   }
@@ -350,6 +630,10 @@ function validateConfig() {
 
   if (!Number.isFinite(CONFIG.healthPort) || CONFIG.healthPort < 0) {
     throw new Error(`Invalid BOT_HEALTH_PORT: ${CONFIG.healthPort}`)
+  }
+
+  if (!Number.isFinite(CONFIG.deployedBlock) || CONFIG.deployedBlock <= 0) {
+    throw new Error(`Invalid BOT_DEPLOYED_BLOCK: ${CONFIG.deployedBlock}`)
   }
 }
 
@@ -448,6 +732,10 @@ function createSessionPolicies() {
 }
 
 async function queryEntities(sdk, modelName, gameId = null, limit = 1000) {
+  if (!sdk) {
+    throw new Error("Torii SDK unavailable")
+  }
+
   let query = new ToriiQueryBuilder()
     .withEntityModels([`dark_waters-${modelName}`])
     .withLimit(limit)
@@ -462,79 +750,121 @@ async function queryEntities(sdk, modelName, gameId = null, limit = 1000) {
   return result.getItems()
 }
 
-async function queryGames(sdk) {
-  const entities = await queryEntities(sdk, "Game", null, 1000)
-  /** @type {GameRow[]} */
-  const games = []
-  for (const entity of entities) {
-    const model = entity.models?.dark_waters?.Game
-    if (!model || typeof model !== "object") continue
-    const gameId = toNumber(model.game_id)
-    if (gameId <= 0) continue
-    games.push({
-      gameId,
-      player1: toAddress(model.player_1),
-      player2: toAddress(model.player_2),
-      turn: toAddress(model.turn),
-      state: toNumber(model.state),
-      winner: toAddress(model.winner),
-    })
-  }
-  games.sort((a, b) => a.gameId - b.gameId)
-  return games
-}
-
-async function queryBoardCommitments(sdk, gameId) {
-  const entities = await queryEntities(sdk, "BoardCommitment", gameId, 16)
-  /** @type {BoardCommitmentRow[]} */
-  const commitments = []
-  for (const entity of entities) {
-    const model = entity.models?.dark_waters?.BoardCommitment
-    if (!model || typeof model !== "object") continue
-    commitments.push({
-      gameId: toNumber(model.game_id),
-      player: toAddress(model.player),
-      isCommitted: toBool(model.is_committed),
-    })
-  }
-  return commitments
-}
-
-async function queryPendingAttack(sdk, gameId) {
-  const entities = await queryEntities(sdk, "PendingAttack", gameId, 4)
-  for (const entity of entities) {
-    const model = entity.models?.dark_waters?.PendingAttack
-    if (!model || typeof model !== "object") continue
-    const row = {
-      gameId: toNumber(model.game_id),
-      attacker: toAddress(model.attacker),
-      x: toNumber(model.x),
-      y: toNumber(model.y),
-      isPending: toBool(model.is_pending),
+async function queryGames(sdk, rpcProvider) {
+  try {
+    const entities = await queryEntities(sdk, "Game", null, 1000)
+    /** @type {GameRow[]} */
+    const games = []
+    for (const entity of entities) {
+      const model = entity.models?.dark_waters?.Game
+      if (!model || typeof model !== "object") continue
+      const gameId = toNumber(model.game_id)
+      if (gameId <= 0) continue
+      games.push({
+        gameId,
+        player1: toAddress(model.player_1),
+        player2: toAddress(model.player_2),
+        turn: toAddress(model.turn),
+        state: toNumber(model.state),
+        winner: toAddress(model.winner),
+      })
     }
-    if (row.gameId === gameId && row.isPending) return row
+    games.sort((a, b) => a.gameId - b.gameId)
+    return games
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    if (!fallbackLogState.games) {
+      log("warn", "Falling back to RPC event polling for games", { error: message })
+      fallbackLogState.games = true
+    }
+    return queryGamesFromEvents(rpcProvider)
   }
-  return null
 }
 
-async function queryAttacks(sdk, gameId) {
-  const entities = await queryEntities(sdk, "Attack", gameId, 1200)
-  /** @type {AttackRow[]} */
-  const rows = []
-  for (const entity of entities) {
-    const model = entity.models?.dark_waters?.Attack
-    if (!model || typeof model !== "object") continue
-    const position = typeof model.position === "object" && model.position ? model.position : {}
-    rows.push({
-      gameId: toNumber(model.game_id),
-      attacker: toAddress(model.attacker),
-      x: toNumber(position.x ?? model.x),
-      y: toNumber(position.y ?? model.y),
-      isRevealed: toBool(model.is_revealed),
-      isHit: toBool(model.is_hit),
-    })
+async function queryBoardCommitments(sdk, rpcProvider, gameId) {
+  try {
+    const entities = await queryEntities(sdk, "BoardCommitment", gameId, 16)
+    /** @type {BoardCommitmentRow[]} */
+    const commitments = []
+    for (const entity of entities) {
+      const model = entity.models?.dark_waters?.BoardCommitment
+      if (!model || typeof model !== "object") continue
+      commitments.push({
+        gameId: toNumber(model.game_id),
+        player: toAddress(model.player),
+        isCommitted: toBool(model.is_committed),
+      })
+    }
+    return commitments
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    if (!fallbackLogState.boardCommitments) {
+      log("warn", "Falling back to RPC event polling for board commitments", {
+        gameId,
+        error: message,
+      })
+      fallbackLogState.boardCommitments = true
+    }
+    return queryBoardCommitmentsFromEvents(rpcProvider, gameId)
   }
-  return rows
+}
+
+async function queryPendingAttack(sdk, rpcProvider, gameId) {
+  try {
+    const entities = await queryEntities(sdk, "PendingAttack", gameId, 4)
+    for (const entity of entities) {
+      const model = entity.models?.dark_waters?.PendingAttack
+      if (!model || typeof model !== "object") continue
+      const row = {
+        gameId: toNumber(model.game_id),
+        attacker: toAddress(model.attacker),
+        x: toNumber(model.x),
+        y: toNumber(model.y),
+        isPending: toBool(model.is_pending),
+      }
+      if (row.gameId === gameId && row.isPending) return row
+    }
+    return null
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    if (!fallbackLogState.pendingAttack) {
+      log("warn", "Falling back to RPC event polling for pending attack", {
+        gameId,
+        error: message,
+      })
+      fallbackLogState.pendingAttack = true
+    }
+    return queryPendingAttackFromEvents(rpcProvider, gameId)
+  }
+}
+
+async function queryAttacks(sdk, rpcProvider, gameId) {
+  try {
+    const entities = await queryEntities(sdk, "Attack", gameId, 1200)
+    /** @type {AttackRow[]} */
+    const rows = []
+    for (const entity of entities) {
+      const model = entity.models?.dark_waters?.Attack
+      if (!model || typeof model !== "object") continue
+      const position = typeof model.position === "object" && model.position ? model.position : {}
+      rows.push({
+        gameId: toNumber(model.game_id),
+        attacker: toAddress(model.attacker),
+        x: toNumber(position.x ?? model.x),
+        y: toNumber(position.y ?? model.y),
+        isRevealed: toBool(model.is_revealed),
+        isHit: toBool(model.is_hit),
+      })
+    }
+    return rows
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    if (!fallbackLogState.attacks) {
+      log("warn", "Falling back to RPC event polling for attacks", { gameId, error: message })
+      fallbackLogState.attacks = true
+    }
+    return queryAttacksFromEvents(rpcProvider, gameId)
+  }
 }
 
 function extractTxHash(executeResult) {
@@ -666,7 +996,7 @@ async function processGame(account, sdk, rpcProvider, game) {
   if (!isZeroAddress(game.winner)) return null
 
   if (game.state === 0) {
-    const commitments = await queryBoardCommitments(sdk, game.gameId)
+    const commitments = await queryBoardCommitments(sdk, rpcProvider, game.gameId)
     const botCommit = commitments.find((commitment) => sameAddress(commitment.player, CONFIG.botAddress))
     if (botCommit?.isCommitted) return null
 
@@ -676,7 +1006,7 @@ async function processGame(account, sdk, rpcProvider, game) {
     return "commit_board"
   }
 
-  const pendingAttack = await queryPendingAttack(sdk, game.gameId)
+  const pendingAttack = await queryPendingAttack(sdk, rpcProvider, game.gameId)
   if (pendingAttack && pendingAttack.isPending && !sameAddress(pendingAttack.attacker, CONFIG.botAddress)) {
     const boardPlan = getBoardPlan(game.gameId)
     const x = pendingAttack.x
@@ -725,7 +1055,7 @@ async function processGame(account, sdk, rpcProvider, game) {
     }
   }
 
-  const attacks = await queryAttacks(sdk, game.gameId)
+  const attacks = await queryAttacks(sdk, rpcProvider, game.gameId)
   const myAttacks = attacks.filter((attack) => sameAddress(attack.attacker, CONFIG.botAddress))
   const target = pickTarget(myAttacks)
   if (!target) return null
@@ -759,7 +1089,7 @@ async function processGame(account, sdk, rpcProvider, game) {
 
 async function runTick(account, sdk, rpcProvider) {
   healthState.lastTickAt = new Date().toISOString()
-  const games = await queryGames(sdk)
+  const games = await queryGames(sdk, rpcProvider)
   const botGames = games.filter(
     (game) =>
       sameAddress(game.player1, CONFIG.botAddress) || sameAddress(game.player2, CONFIG.botAddress)
@@ -836,18 +1166,24 @@ async function main() {
     return
   }
 
-  const sdk = await init({
-    client: {
-      worldAddress: CONFIG.worldAddress,
-      toriiUrl: CONFIG.toriiUrl,
-    },
-    domain: {
-      name: "Dark Waters Bot",
-      version: "1.0.0",
-      chainId: "SN_SEPOLIA",
-      revision: "1",
-    },
-  })
+  const sdk = CONFIG.toriiUrl
+    ? await init({
+        client: {
+          worldAddress: CONFIG.worldAddress,
+          toriiUrl: CONFIG.toriiUrl,
+        },
+        domain: {
+          name: "Dark Waters Bot",
+          version: "1.0.0",
+          chainId: "SN_SEPOLIA",
+          revision: "1",
+        },
+      }).catch((error) => {
+        const message = error instanceof Error ? error.message : String(error)
+        log("warn", "Torii SDK init failed; using RPC event polling fallback", { error: message })
+        return null
+      })
+    : null
 
   healthState.status = "running"
 
