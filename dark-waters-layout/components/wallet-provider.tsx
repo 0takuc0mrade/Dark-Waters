@@ -40,11 +40,39 @@ const policies = {
         { name: "Reveal Attack EGS", entrypoint: "reveal_attack_egs" },
         { name: "Reveal EGS", entrypoint: "reveal_egs" },
         { name: "Claim Timeout Win EGS", entrypoint: "claim_timeout_win_egs" },
+        { name: "Configure Denshokan", entrypoint: "configure_denshokan" },
+        { name: "Initialize Denshokan", entrypoint: "initialize_denshokan" },
         { name: "Mint Game Token", entrypoint: "mint_game" },
         { name: "Mint Game Token Batch", entrypoint: "mint_game_batch" },
       ],
     },
   },
+  messages: [
+    {
+      types: {
+        StarknetDomain: [
+          { name: "name", type: "shortstring" },
+          { name: "version", type: "shortstring" },
+          { name: "chainId", type: "shortstring" },
+          { name: "revision", type: "shortstring" },
+        ],
+        ChatAuth: [
+          { name: "action", type: "shortstring" },
+          { name: "gameId", type: "felt" },
+          { name: "nonce", type: "felt" },
+          { name: "issuedAt", type: "felt" },
+          { name: "expiresAt", type: "felt" },
+        ],
+      },
+      primaryType: "ChatAuth",
+      domain: {
+        name: "Dark Waters Chat",
+        version: "1",
+        chainId: SEPOLIA_CONFIG.CHAIN_ID,
+        revision: "1",
+      },
+    },
+  ],
 }
 
 // ── Controller connector (created once, outside components) ─────────
