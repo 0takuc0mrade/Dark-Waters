@@ -1,0 +1,20 @@
+app = "dark-waters-bot"
+primary_region = "lag"
+[build]
+  dockerfile = "Dockerfile.bot"
+[mounts]
+  source = "bot_data"
+  destination = "/data"
+[env]
+  NODE_ENV = "production"
+  BOT_ALLOW_INTERACTIVE_AUTH = "false"
+  BOT_POLL_MS = "4000"
+  BOT_SESSION_BASE_PATH = "/data/session"
+  BOT_STATE_PATH = "/data/bot-state.json"
+# No HTTP services needed — this is a worker process
+# But if you want health endpoint:
+# [[services]]
+#   internal_port = 8080
+#   protocol = "tcp"
+#   [[services.ports]]
+#     port = 80

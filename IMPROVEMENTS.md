@@ -37,14 +37,32 @@ This roadmap captures the **next-stage expansion opportunities** beyond the curr
 - Target outcome:
   - At least one additional mini-game reuses these primitives with minimal net-new contract logic.
 
+### 3) Bot Deployment on Always-On VM (`#11`)
+
+- Opportunity:
+  - Deploy the Dark Waters bot (`bot-runner.mjs`) to a cloud VM so it runs 24/7 independently of the developer's laptop.
+- Why it matters:
+  - The bot currently runs via PM2 on a local machine and stops when the machine sleeps/shuts down. An always-on host ensures the bot is available for matchmaking at all times.
+- Current status:
+  - Bot code, PM2 config, and Cartridge Controller session are ready.
+  - Dockerfile.bot created for containerized deployment.
+  - Deployment guides written for Oracle Cloud (free tier, requires Visa/MC) and Koyeb.
+- Remaining work:
+  - Obtain a virtual Visa/Mastercard for cloud provider verification.
+  - Provision VM and deploy using existing guide.
+  - Enable PM2 startup on reboot / configure container auto-restart.
+  - Set up uptime monitoring on the bot health endpoint.
+
 ## Delivery Outlook
 
 ### Phase 2A
 
 1. ZK architecture doc + verifier integration plan
 2. Minimal ZK MVP proving one reveal path end-to-end
+3. Bot deployed on always-on VM with health monitoring
 
 ### Phase 2B
 
 1. Framework modularization of protocol + sync layers
 2. One follow-on mini-game built on shared hidden-state stack
+
